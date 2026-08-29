@@ -105,11 +105,27 @@ cmd_install() {
   latest="$(latest_tag)"
   [[ -n "$latest" ]] || { echo "ERROR: no release tags found" >&2; exit 1; }
 
+  # Checking out the new tag *in place* would rewrite Panel.qml/Model.js
+  # one file at a time while they're the exact files the running shell has
+  # symlinked and is watching — Omarchy's hot-reload fires mid-checkout,
+  # tearing down this very process and the animation with it. Instead,
+  # build the new version in a separate worktree, and only repoint the
+  # live symlinks (one atomic swap per link) once that's fully done.
+  # Strip any -vX.Y.Z this dir already has (from a previous update) before
+  # appending the new one, so directory names stay flat across repeated
+  # updates instead of nesting (...-v1.5.5-v1.5.6-v1.5.7).
+  local new_dir old_dir base_name
+  old_dir="$REPO_DIR"
+  base_name="$(basename "$REPO_DIR" | sed -E 's/-v[0-9]+\.[0-9]+\.[0-9]+$//')"
+  new_dir="$(dirname "$REPO_DIR")/$base_name-v$latest"
+
   echo "STEP:CHECKOUT"
-  git -C "$REPO_DIR" checkout --quiet "v$latest"
+  git -C "$REPO_DIR" worktree prune 2>/dev/null || true
+  rm -rf "$new_dir"
+  git -C "$REPO_DIR" worktree add --quiet "$new_dir" "v$latest"
 
   echo "STEP:INSTALL"
-  "$REPO_DIR/install.sh" >/dev/null
+  "$new_dir/install.sh" >/dev/null
 
   echo "STEP:RELOAD"
   systemctl --user daemon-reload
@@ -117,6 +133,11 @@ cmd_install() {
     systemctl --user restart omarchy-archalarm-monitor.service
   fi
 
+  # Best-effort — an orphaned old worktree is clutter, not a functional
+  # problem, so never fail the update over cleanup.
+  git -C "$new_dir" worktree remove "$old_dir" 2>/dev/null || true
+
+  REPO_DIR="$new_dir"
   write_update_json false false "$latest" ""
   echo "STEP:DONE"
 }

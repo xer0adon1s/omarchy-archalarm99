@@ -137,8 +137,15 @@ live Claude API call and typically takes a few seconds.
 
 This repo *is* the install — everything under `~/.local/bin`,
 `~/.config/omarchy/plugins/alexander.archalarm`, and the systemd user unit
-is a symlink back into this checkout. Pull a new version and every symlinked
-copy updates instantly; nothing needs re-copying.
+is a symlink back into a checkout of it. Running `install.sh` by hand
+updates that checkout in place, so a manual `git pull` is all it takes.
+The in-app updater does it differently: it builds the new version in a
+separate `git worktree` (a sibling directory) and only repoints the live
+symlinks once that's fully checked out, so the files the running shell
+has open never change out from under it mid-update — see the 1.5.6 entry
+below for why that matters. The original clone/worktree is left in place
+after the first update rather than deleted (worktrees can't remove the
+"main" one); later updates clean up their own predecessor normally.
 
 ```
 omarchy-archalarm99/
@@ -187,6 +194,17 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.6** — Fixed a real bug hit clicking the v1.5.5 updater for the
+  first time: checking out the new tag *in place* rewrites Panel.qml and
+  Model.js one file at a time — the exact files the running shell has
+  symlinked and is watching — so Omarchy's hot-reload fired mid-checkout
+  (three times, once per changed file) and tore down the panel, animation
+  included, while the update was still copying files. The update itself
+  actually finished successfully underneath; it just looked like nothing
+  happened. Now `install` builds the new version in a separate git
+  worktree first, and only repoints the live symlinks once, atomically,
+  after that's done — so a reload only ever happens right at the end,
+  after "UPDATE COMPLETE" has already shown.
 - **1.5.5** — Two "Future ideas" shipped: incident report export
   (`[EXPORT INCIDENT REPORT]` in the panel, `omarchy-archalarm report` on
   the CLI) and scan pattern labeling (`PSCAN`/`MSCAN` tags on feed
