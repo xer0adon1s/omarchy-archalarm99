@@ -199,6 +199,9 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.17** — Verification release for 1.5.16: confirms the update
+  banner starts the install without touching the bar at all, and that
+  the bar only ever restarts on an explicit `[RELOAD SHELL NOW]` click.
 - **1.5.16** — Stopped auto-triggering the shell restart after a
   successful install. On a real run, `omarchy restart shell` killed the
   running bar but the relaunch step silently didn't happen, leaving no

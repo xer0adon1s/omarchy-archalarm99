@@ -54,7 +54,7 @@ valid_ip() {
 }
 
 write_off_status() {
-  printf '{"enabled":false,"version":"1.5.16","mode":"%s","knownSafe":"%s","startedAt":0,"blockedTotal":0,"recentEvents":[],"topOffenders":[],"hostnames":{},"bannedIps":[%s],"trustedIps":[%s],"listenPorts":[],"connections":[],"connectionCount":0,"lastEventAt":0,"lastEventText":"","uptimeSec":0,"threatLevel":0,"now":%s}\n' \
+  printf '{"enabled":false,"version":"1.5.17","mode":"%s","knownSafe":"%s","startedAt":0,"blockedTotal":0,"recentEvents":[],"topOffenders":[],"hostnames":{},"bannedIps":[%s],"trustedIps":[%s],"listenPorts":[],"connections":[],"connectionCount":0,"lastEventAt":0,"lastEventText":"","uptimeSec":0,"threatLevel":0,"now":%s}\n' \
     "$(current_mode)" "$(current_knownsafe)" "$(list_to_json_array "$BAN_FILE")" "$(list_to_json_array "$TRUST_FILE")" "$(date +%s)" > "$STATUS_FILE"
 }
 
