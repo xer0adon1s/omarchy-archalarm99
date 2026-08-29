@@ -1,11 +1,13 @@
 # ArchAlarm '99
 
 ```
-   ▄████▄   ▄▄▄       ██▀███   ▄████▄   ██░ ██
-  ▒██▀ ▀█  ▒████▄    ▓██ ▒ ██▒▒██▀ ▀█  ▓██░ ██▒
-  ▒▓█    ▄ ▒██  ▀█▄  ▓██ ░▄█ ▒▒▓█    ▄ ▒██▀▀██░
-  ▒▓▓▄ ▄██▒░██▄▄▄▄██ ▒██▀▀█▄  ▒▓▓▄ ▄██▒░▓█ ░██
-  ▒ ▓███▀ ░ ▓█   ▓██▒░██▓ ▒██▒▒ ▓███▀ ░░▓█▒░██▓
+ █████╗ ██████╗  ██████╗██╗  ██╗ █████╗ ██╗      █████╗ ██████╗ ███╗   ███╗
+██╔══██╗██╔══██╗██╔════╝██║  ██║██╔══██╗██║     ██╔══██╗██╔══██╗████╗ ████║
+███████║██████╔╝██║     ███████║███████║██║     ███████║██████╔╝██╔████╔██║
+██╔══██║██╔══██╗██║     ██╔══██║██╔══██║██║     ██╔══██║██╔══██╗██║╚██╔╝██║
+██║  ██║██║  ██║╚██████╗██║  ██║██║  ██║███████╗██║  ██║██║  ██║██║ ╚═╝ ██║
+╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝
+                                                                    '99
 ```
 
 A real `nftables` firewall for your Linux box, wearing the skin of a
@@ -195,6 +197,12 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.12** — Docs only: the header ASCII art was hand-typed block
+  characters that didn't actually spell anything reliable across fonts
+  — replaced with a proper generated banner. Swapped the README
+  screenshot for one taken with the ArchAlarm theme (green-on-black)
+  instead of Match System Theme, so the hero image matches the
+  project's actual default look instead of one viewer's desktop colors.
 - **1.5.11** — Verified 1.5.10 for real: timed a full install from a live
   v1.5.10 through the actual worktree-add/install.sh/systemctl path to
   this release, confirming it completes in seconds with no hang.

@@ -22,7 +22,7 @@ function formatDuration(totalSeconds) {
 function defaultStatus() {
   return {
     enabled: false,
-    version: "1.5.11",
+    version: "1.5.12",
     mode: "stealth",
     knownSafe: "on",
     startedAt: 0,
