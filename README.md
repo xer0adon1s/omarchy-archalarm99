@@ -88,8 +88,8 @@ optionally set up passwordless toggling) and you're armed.
   dial-up-style progress screen while it works — no manual `git pull`
   needed. A `[RELOAD SHELL NOW]` button appears once it's done — that's
   the only way the panel actually picks up the new version, and it's a
-  deliberate click rather than automatic (see the 1.5.16 changelog
-  entry for why). The same button lives permanently under Settings too.
+  deliberate click rather than automatic (see Version history). The
+  same button lives permanently under Settings too.
 
 ## How it stays safe to run
 
@@ -150,11 +150,11 @@ itself a symlink to whichever checkout is currently live. Running
 builds the new version in a separate `git worktree` (a sibling directory)
 and, once that's fully checked out, repoints only `archalarm-current` —
 nothing downstream of it changes, so an update is a single symlink move
-rather than six. The files the running shell has open also never change
-out from under it mid-update this way — see the 1.5.6 and 1.5.20 entries
-below for why both of those matter. Old worktrees are left on disk rather
-than cleaned up (see 1.5.10) — a rounding error for a repo this size, and
-worth it for never risking the one currently in use.
+rather than six, and the files the running shell has open never change
+out from under it mid-update (see Version history for why both of those
+matter). Old worktrees are left on disk rather than cleaned up — a
+rounding error for a repo this size, and worth it for never risking the
+one currently in use.
 
 ```
 omarchy-archalarm99/
@@ -204,187 +204,26 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
-- **1.5.22** — Live user test of the full update button flow after the
-  1.5.20 single-symlink fix.
-- **1.5.21** — Verification release for 1.5.20: a real update from
-  v1.5.20, watching the journal directly, confirming only the one
-  `archalarm-current` symlink move triggers a reload — not six.
-- **1.5.20** — Reduced an update to a single symlink change. Every live
-  path (the CLI, the daemon, the plugin, the systemd unit) used to point
-  straight at the checked-out version, so `install.sh` had to repoint
-  all 6 of them individually on every update — and the whole bar
-  visibly flickered once per repoint, confirmed on a real update.
-  They now all point through one fixed indirection,
-  `~/.local/share/omarchy/archalarm-current`, and only *that* symlink
-  moves on an update; nothing downstream of it ever needs to change.
-- **1.5.19** — Verification release for 1.5.18: a real click of
-  `[RELOAD SHELL NOW]` that actually brings the bar back on its own.
-- **1.5.18** — Found the actual root cause of the shell restart never
-  completing (1.5.16 only papered over one symptom of it): `omarchy
-  restart shell`'s own first act is killing its caller — but its caller
-  *is* the panel's parent process. A plain child of Quickshell dies
-  right along with Quickshell the moment that happens, before ever
-  reaching the relaunch line further down the script. Confirmed from a
-  real run's logs: the shell exits cleanly on the IPC request and then
-  nothing else ever happens — not a timing fluke, the parent's death
-  taking the still-running child down mid-script. `[RELOAD SHELL NOW]`
-  now runs it through `setsid` first, detaching it into its own session
-  before it does anything, so it survives past the point its own parent
-  exits — verified directly: a process spawned this way and orphaned
-  immediately after still completed its work seconds later. Output is
-  redirected to `~/.local/state/omarchy/archalarm/restart.log` instead
-  of Quickshell's own stdout/stderr pipes, since nothing may be left
-  alive to read those by the time there's something to say.
-- **1.5.17** — Verification release for 1.5.16: confirms the update
-  banner starts the install without touching the bar at all, and that
-  the bar only ever restarts on an explicit `[RELOAD SHELL NOW]` click.
-- **1.5.16** — Stopped auto-triggering the shell restart after a
-  successful install. On a real run, `omarchy restart shell` killed the
-  running bar but the relaunch step silently didn't happen, leaving no
-  bar at all until someone ran it again by hand — and since the Process
-  that ran it had no stdout/stderr capture, there was no way to see why.
-  A kill with no relaunch is a strictly worse failure than a panel that
-  needs a manual click, so restarting the shell is now only ever a
-  deliberate action: a `[RELOAD SHELL NOW]` button on the install result
-  screen, plus a permanent copy of the same button under Settings so
-  there's always a way to trigger one even if that screen gets
-  dismissed first. The likely cause is an environment difference
-  between a Quickshell-spawned child process and an interactive shell
-  (`omarchy restart shell` reads `HYPRLAND_INSTANCE_SIGNATURE` to talk
-  to Hyprland, with a fallback only when that variable is completely
-  unset) — not confirmed, since the failure wasn't reproducible on
-  demand, which is exactly why this is now a manual action with logged
-  output instead of a silent automatic one. If the button itself ever
-  fails to bring the bar back, running `omarchy restart shell` in an
-  actual terminal is the reliable fallback.
-- **1.5.15** — Verification release for the 1.5.13 redundant-click fix:
-  a live install from v1.5.14 through the actual button/CLI path,
-  including calling `install` several times back-to-back after it
-  already succeeded, confirming nothing gets deleted and every
-  redundant call safely short-circuits.
-- **1.5.14** — Added a version-compare guard on the update banner
-  itself: it now only shows when the reported latest version is
-  actually newer than this exact component's own compiled-in version,
-  never trusting a cached check at face value. Mainly a defense against
-  stale state surviving a version jump, but a real safety net either
-  way, independent of whatever wrote the cache.
-- **1.5.13** — Fixed a genuinely destructive bug: a second `install`
-  invocation while already on the latest version — a click on a badge
-  that hadn't refreshed after the first click's own restart, or just an
-  impatient re-click — recomputed the *exact directory this process was
-  currently running from* as its target, then `rm -rf`'d it before
-  rebuilding. That's what "second time it failed, something didn't
-  exist" actually was. `install` now exits immediately, doing nothing,
-  if the current version already matches the latest tag, plus a
-  belt-and-suspenders check that refuses to touch a target directory
-  that's the live one under any circumstance. Also replaced the silent
-  1.8s pause before the shell restart with a visible 3-2-1 countdown —
-  a bar vanishing with no warning reads as a crash, not a restart.
-- **1.5.12** — Docs only: the header ASCII art was hand-typed block
-  characters that didn't actually spell anything reliable across fonts
-  — replaced with a proper generated banner. Swapped the README
-  screenshot for one taken with the ArchAlarm theme (green-on-black)
-  instead of Match System Theme, so the hero image matches the
-  project's actual default look instead of one viewer's desktop colors.
-- **1.5.11** — Verified 1.5.10 for real: timed a full install from a live
-  v1.5.10 through the actual worktree-add/install.sh/systemctl path to
-  this release, confirming it completes in seconds with no hang.
-- **1.5.10** — Fixed the update flow actually hanging on a real click:
-  the "best-effort" cleanup step at the end of `install` (removing the
-  now-unused old worktree) had no timeout, so if it ever stalled — a
-  stale lock, a filesystem hiccup, anything — the script never reached
-  the line that reports success, the QML side never got told the
-  process finished, and the panel sat frozen on "UPDATE COMPLETE. GO!!"
-  forever with no way out. Every external command `install` runs
-  (fetch, worktree add, install.sh, systemctl) is now timeout-bounded,
-  and the old-worktree cleanup is gone entirely rather than
-  best-effort — old worktrees are just left on disk, which costs
-  nothing for a repo this size. Also added two safety nets on the panel
-  side that don't depend on diagnosing the exact cause correctly: a
-  hard ceiling that ends the animation if nothing has happened after
-  110s, and a `[RELOAD SHELL NOW]` button that's always available once
-  a result is showing, independent of whether the automatic restart
-  fires.
-- **1.5.9** — Verified 1.5.8 for real: updated a live install from v1.5.8
-  to this release through the actual button/CLI path and confirmed the
-  shell restarts itself automatically once "UPDATE COMPLETE" shows, with
-  no manual restart needed to see the new version.
-- **1.5.8** — Fixed a second real bug uncovered while verifying 1.5.6:
-  the 1.5.6 fix stopped the *disruptive* mid-checkout reloads, but a
-  single symlink retarget still isn't enough for the panel to actually
-  show the new version — Omarchy's plugin loader resolves the symlink
-  chain once at discovery and doesn't re-follow it on a hot-reload or
-  even `rescanPlugins`, so the panel kept silently showing the old
-  version's content until a full shell restart. The panel now triggers
-  `omarchy restart shell` itself, timed to its own animation — once the
-  "UPDATE COMPLETE" state is reached, not a blind sleep in the backend
-  script guessing how long the animation takes.
-- **1.5.7** — Verified the 1.5.6 worktree fix for real: updated a live
-  install from v1.5.6 to this release through the actual button/CLI path
-  and confirmed the panel reload only happens once, at the very end,
-  instead of mid-checkout.
-- **1.5.6** — Fixed a real bug hit clicking the v1.5.5 updater for the
-  first time: checking out the new tag *in place* rewrites Panel.qml and
-  Model.js one file at a time — the exact files the running shell has
-  symlinked and is watching — so Omarchy's hot-reload fired mid-checkout
-  (three times, once per changed file) and tore down the panel, animation
-  included, while the update was still copying files. The update itself
-  actually finished successfully underneath; it just looked like nothing
-  happened. Now `install` builds the new version in a separate git
-  worktree first, and only repoints the live symlinks once, atomically,
-  after that's done — so a reload only ever happens right at the end,
-  after "UPDATE COMPLETE" has already shown.
-- **1.5.5** — Two "Future ideas" shipped: incident report export
-  (`[EXPORT INCIDENT REPORT]` in the panel, `omarchy-archalarm report` on
-  the CLI) and scan pattern labeling (`PSCAN`/`MSCAN` tags on feed
-  entries, computed by the daemon from a 30s window of recent events).
-  The pattern tag sits right after the timestamp rather than at the end
-  of the line, so it survives `ElideRight` truncation on a long row
-  instead of getting cut off along with everything else.
-- **1.5.4** — Verified end-to-end: rolled a live install back to v1.5.3 and
-  used the real in-app updater to bring it forward to this release, to
-  confirm fetch → checkout → reinstall → reload actually works and not
-  just the version-comparison logic in isolation.
-- **1.5.3** — Two real bugs found by actually running the 1.5.2 updater
-  end-to-end: `omarchy-archalarm-update` derived its own location from
-  `$BASH_SOURCE`, but it's always invoked through the `~/.local/bin`
-  symlink, so it was resolving to the wrong directory entirely and every
-  check silently failed with "couldn't reach GitHub." Also, the `⇪ UPDATE`
-  badge lived inline in the header next to the gear icon with no width
-  cap, so a longer version string would run into it — moved to its own
-  full-width banner underneath instead.
-- **1.5.2** — Moved to a real GitHub repo (`bin/`, `plugin/`, `systemd/`) —
-  everything under `~/.local/bin`, the Omarchy plugin directory, and the
-  systemd user unit is now a symlink into this checkout, installed via
-  `install.sh`. Added an in-app updater: checks GitHub for a newer tagged
-  release once per boot and at most once every 24h, shows an `⇪ UPDATE`
-  badge next to the version number when one's out, and installs it with a
-  retro dial-up-style progress animation on click. Added
-  `omarchy-archalarm setup-sudo`, which generates and installs the
-  passwordless-toggle sudoers rule for whoever's actually running it
-  (the old setup command had this machine's home directory hardcoded).
-- **1.5.1** — Full diagnostic pass, two real bugs fixed: the "always starts
-  disarmed" self-heal check compared against `"enabled":true` with no space,
-  but status.json is always written with a space after the colon, so it
-  never actually matched — a stale "enabled" flag would have stuck around
-  instead of resetting. Also added IP-format validation to
-  `ban`/`unban`/`trust`/`untrust` (previously any string was accepted and
-  written straight to the ban/whitelist files and into the privileged nft
-  call). Fixed a text-overflow bug where the "INTRUSION ATTEMPT DETECTED"
-  banner could run past the panel's edge instead of wrapping.
-- **1.5** — Known-safe filter: auto-allow multicast/broadcast destination
-  traffic (mDNS, SSDP, DHCP) so it stops producing false-positive alerts,
-  toggleable in Settings. Top offenders made collapsible. Banning now purges
-  every existing feed/offender entry for that IP, not just future ones, and
-  the daemon independently refuses to re-record a hit from a banned IP as a
-  second guard beyond the nft rule order. Ban/trust actions animate instead
-  of vanishing silently. Bar icon and status text use fixed traffic-light
-  colors (green/yellow/red) independent of the active theme.
-- **1.4** — Whitelist added alongside the banlist. Always starts disarmed
-  (status self-heals against a stale "enabled" flag). Live feed box shrunk
-  and shows a live status line instead of static text. Settings menu (⚙)
-  with a theme picker: ArchAlarm, Amber CRT, Cyber Red Alert, or match the
-  live Omarchy system theme.
+- **1.5.1 – 1.5.22** — Diagnostic pass, GitHub repo, and an in-app
+  updater — then round after round of actually using that updater and
+  fixing the real bug each attempt turned up:
+  - Fixed a self-heal check that never matched, missing IP validation on
+    ban/trust, and an alert banner that could overflow the panel.
+  - Added `omarchy-archalarm setup-sudo`, incident report export, and
+    scan pattern labeling (`PSCAN`/`MSCAN` on feed entries).
+  - Fixed the updater tearing down the panel mid-install, needing a
+    manual restart to actually show the new version, a redundant click
+    that could delete the live install, a shell restart that silently
+    failed to complete, and a bar flicker on every update.
+  - End state: one atomic symlink move per update, every step
+    timeout-bounded, safe to click more than once, and the restart
+    survives the bar restarting around it — each verified with a real
+    update, not just read back.
+- **1.5** — Known-safe filter for multicast/broadcast noise (fewer false
+  positives). Banning now purges past feed entries too, not just future
+  ones. Fixed traffic-light colors independent of theme.
+- **1.4** — Whitelist added. Always starts disarmed. Settings menu (⚙)
+  with a theme picker.
 - **1.3** — Expandable socket list. AI-backed IP trace (`investigate`).
   Banlist collapsed by default.
 - **1.2** — Idle animation in the live feed panel.
