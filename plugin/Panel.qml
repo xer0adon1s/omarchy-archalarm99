@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.12"
+  readonly property string appVersion: "1.5.13"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -458,11 +458,28 @@ Panel {
       // ones and keeps executing until the process that loaded it is
       // gone. Neither the file watcher's hot-reload nor rescanPlugins
       // re-resolves a retargeted symlink, only a full shell restart
-      // does — so trigger one once the result message has had a moment
-      // on screen, rather than leaving the panel silently stale.
-      shellRestartTimer.restart()
+      // does. A silent 1.8s pause before the whole bar vanishes read as
+      // a crash, not a restart — count down visibly instead so it's
+      // unambiguous that this is expected.
+      root.restartCountdown = 3
+      restartCountdownTimer.restart()
     } else {
       updateResultDismissTimer.restart()
+    }
+  }
+
+  property int restartCountdown: 3
+
+  Timer {
+    id: restartCountdownTimer
+    interval: 1000
+    repeat: true
+    onTriggered: {
+      root.restartCountdown--
+      if (root.restartCountdown <= 0) {
+        restartCountdownTimer.stop()
+        shellRestartProc.running = true
+      }
     }
   }
 
@@ -488,13 +505,6 @@ Panel {
     interval: 4000
     repeat: false
     onTriggered: root.updateResultShowing = false
-  }
-
-  Timer {
-    id: shellRestartTimer
-    interval: 1800
-    repeat: false
-    onTriggered: shellRestartProc.running = true
   }
 
   Process {
@@ -1705,7 +1715,7 @@ Panel {
               text: root.updateTimedOut
                 ? "> TIMED OUT — it may still finish in the background. Reload to check, or try again shortly."
                 : root.updateInstallOk
-                  ? "> INSTALLED v" + root.updateInfo.latestVersion + " — reloading shell..."
+                  ? "> INSTALLED v" + root.updateInfo.latestVersion + " — reloading shell in " + root.restartCountdown + "..."
                   : "> UPDATE FAILED: " + root.updateInstallError
               color: root.updateInstallOk && !root.updateTimedOut ? root.colCalm : root.colAlert
               font.family: "JetBrainsMono Nerd Font"
@@ -1732,7 +1742,7 @@ Panel {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                  shellRestartTimer.stop()
+                  restartCountdownTimer.stop()
                   shellRestartProc.running = true
                 }
               }

@@ -106,9 +106,22 @@ cmd_install() {
   echo "STEP:FETCH"
   timeout 30 git -C "$REPO_DIR" fetch --tags --quiet origin
 
-  local latest
+  local latest current
   latest="$(latest_tag)"
+  current="$(current_version)"
   [[ -n "$latest" ]] || { echo "ERROR: no release tags found" >&2; exit 1; }
+
+  # A second click on a badge that hasn't refreshed yet (e.g. right after
+  # a restart from the first click already finished the update) must not
+  # redo the same install — new_dir below would compute to the exact
+  # directory this process is *currently running from*, and rm -rf'ing
+  # the live worktree out from under itself is how the previous bug
+  # actually manifested as "failed, something didn't exist."
+  if [[ "$latest" == "$current" ]]; then
+    write_update_json false false "$latest" ""
+    echo "STEP:DONE"
+    return 0
+  fi
 
   # Checking out the new tag *in place* would rewrite Panel.qml/Model.js
   # one file at a time while they're the exact files the running shell has
@@ -123,6 +136,14 @@ cmd_install() {
   old_dir="$REPO_DIR"
   base_name="$(basename "$REPO_DIR" | sed -E 's/-v[0-9]+\.[0-9]+\.[0-9]+$//')"
   new_dir="$(dirname "$REPO_DIR")/$base_name-v$latest"
+
+  # Belt-and-suspenders on top of the up-to-date check above: never rm -rf
+  # the directory this process is actually running out of, no matter how
+  # new_dir ended up computed.
+  if [[ "$new_dir" == "$old_dir" ]]; then
+    echo "ERROR: refusing to rebuild the live worktree in place ($new_dir)" >&2
+    exit 1
+  fi
 
   echo "STEP:CHECKOUT"
   timeout 10 git -C "$REPO_DIR" worktree prune 2>/dev/null || true

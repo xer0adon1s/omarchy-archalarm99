@@ -197,6 +197,18 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.13** — Fixed a genuinely destructive bug: a second `install`
+  invocation while already on the latest version — a click on a badge
+  that hadn't refreshed after the first click's own restart, or just an
+  impatient re-click — recomputed the *exact directory this process was
+  currently running from* as its target, then `rm -rf`'d it before
+  rebuilding. That's what "second time it failed, something didn't
+  exist" actually was. `install` now exits immediately, doing nothing,
+  if the current version already matches the latest tag, plus a
+  belt-and-suspenders check that refuses to touch a target directory
+  that's the live one under any circumstance. Also replaced the silent
+  1.8s pause before the shell restart with a visible 3-2-1 countdown —
+  a bar vanishing with no warning reads as a crash, not a restart.
 - **1.5.12** — Docs only: the header ASCII art was hand-typed block
   characters that didn't actually spell anything reliable across fonts
   — replaced with a proper generated banner. Swapped the README
