@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.17"
+  readonly property string appVersion: "1.5.18"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -459,7 +459,7 @@ Panel {
     // no bar running at all until a human intervened. A kill with no
     // relaunch is a strictly worse failure than a panel that needs a
     // manual click, so restarting is now only ever a deliberate action
-    // via the button below — see the 1.5.17 changelog entry.
+    // via the button below — see the 1.5.18 changelog entry.
     if (!root._updateProcOk) {
       updateResultDismissTimer.restart()
     }
@@ -489,24 +489,24 @@ Panel {
     onTriggered: root.updateResultShowing = false
   }
 
-  property string shellRestartError: ""
-
+  // omarchy restart shell's own first act is asking *this* process's
+  // parent (quickshell) to exit — and a plain child process of
+  // quickshell dies right along with it the moment that happens,
+  // before ever reaching the relaunch line further down the script.
+  // That's confirmed from a real run: the log shows the shell exiting
+  // cleanly on the IPC request and then nothing else, ever — not a
+  // timing fluke, not an environment issue, just the parent's death
+  // taking this child down mid-script. setsid detaches it into its own
+  // session first, so it survives past the point its own parent exits.
+  // Output can't go through Quickshell's own stdout/stderr pipes for
+  // the same reason (nothing may be left alive to read them by the
+  // time there's anything to say) — redirected to a real file instead.
   Process {
     id: shellRestartProc
     running: false
-    command: ["omarchy", "restart", "shell"]
-    stdout: StdioCollector { id: shellRestartStdout; waitForEnd: true }
-    stderr: StdioCollector { id: shellRestartStderr; waitForEnd: true }
-    onExited: function(exitCode) {
-      // If this fails, the panel that would show the error is itself
-      // gone or about to be — there's nothing to show it in. Logged so
-      // it's at least visible in the shell's own output if this run
-      // survives to tell about it.
-      if (exitCode !== 0) {
-        var msg = String(shellRestartStderr.text || shellRestartStdout.text || "").trim()
-        console.warn("omarchy restart shell failed (exit " + exitCode + "): " + msg)
-      }
-    }
+    command: ["setsid", "sh", "-c",
+      "omarchy restart shell > " + Quickshell.env("HOME")
+      + "/.local/state/omarchy/archalarm/restart.log 2>&1"]
   }
 
   Timer {
@@ -1761,7 +1761,7 @@ Panel {
 
             // The only trigger for the shell restart — not automatic
             // anymore. It's the one way to actually see the new version
-            // (see the 1.5.17 note on Panel.qml), so it's always shown
+            // (see the 1.5.18 note on Panel.qml), so it's always shown
             // once a result appears, success or failure.
             Text {
               visible: root.updateResultShowing && !root.updateInstalling

@@ -199,6 +199,22 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.18** — Found the actual root cause of the shell restart never
+  completing (1.5.16 only papered over one symptom of it): `omarchy
+  restart shell`'s own first act is killing its caller — but its caller
+  *is* the panel's parent process. A plain child of Quickshell dies
+  right along with Quickshell the moment that happens, before ever
+  reaching the relaunch line further down the script. Confirmed from a
+  real run's logs: the shell exits cleanly on the IPC request and then
+  nothing else ever happens — not a timing fluke, the parent's death
+  taking the still-running child down mid-script. `[RELOAD SHELL NOW]`
+  now runs it through `setsid` first, detaching it into its own session
+  before it does anything, so it survives past the point its own parent
+  exits — verified directly: a process spawned this way and orphaned
+  immediately after still completed its work seconds later. Output is
+  redirected to `~/.local/state/omarchy/archalarm/restart.log` instead
+  of Quickshell's own stdout/stderr pipes, since nothing may be left
+  alive to read those by the time there's something to say.
 - **1.5.17** — Verification release for 1.5.16: confirms the update
   banner starts the install without touching the bar at all, and that
   the bar only ever restarts on an explicit `[RELOAD SHELL NOW]` click.
