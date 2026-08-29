@@ -194,6 +194,10 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.7** — Verified the 1.5.6 worktree fix for real: updated a live
+  install from v1.5.6 to this release through the actual button/CLI path
+  and confirmed the panel reload only happens once, at the very end,
+  instead of mid-checkout.
 - **1.5.6** — Fixed a real bug hit clicking the v1.5.5 updater for the
   first time: checking out the new tag *in place* rewrites Panel.qml and
   Model.js one file at a time — the exact files the running shell has
