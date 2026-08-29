@@ -203,6 +203,9 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.6.2** — Release-sync bump to keep the plugin, daemon, status output,
+  and GitHub tag all reporting the same `1.6.2` version after the `1.6.1`
+  ID rename. No functional changes beyond the version bookkeeping itself.
 - **1.6.1** — Renamed the plugin ID and author from `alexander.archalarm`
   to `xer0adon1s.archalarm` so the identity baked into the repo matches the
   public GitHub handle rather than a first name. Purely a namespace/branding

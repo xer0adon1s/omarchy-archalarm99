@@ -14,7 +14,7 @@ Panel {
   moduleName: "xer0adon1s.archalarm"
   ipcTarget: "xer0adon1s.archalarm"
 
-  readonly property string appVersion: "1.6.1"
+  readonly property string appVersion: "1.6.2"
   // Shown in the header/footer — prefer the live monitor version so a
   // successful activate updates the label on the next status poll even when
   // the shell restart doesn't fully reload this QML file.
@@ -108,18 +108,18 @@ Panel {
     return "#39ff14"
   }
 
+  // Static per-state opacity — color (iconBaseColor) already carries the
+  // threat signal, so the bar icon no longer blinks/pulsates on top of it.
+  readonly property real iconOpacity: root.archalarmEnabled ? 1.0 : 0.55
+
+  // Retro terminal cursor blink — still used by the boot/install screens'
+  // blinking cursor and line highlight. No longer drives the bar icon.
   property bool blinkPhase: false
   Timer {
-    interval: root.archalarmEnabled ? (root.threatLevel >= 2 ? 220 : root.threatLevel >= 1 ? 500 : 900) : 1400
+    interval: 530
     running: true
     repeat: true
     onTriggered: root.blinkPhase = !root.blinkPhase
-  }
-
-  readonly property real iconOpacity: {
-    if (!root.archalarmEnabled) return 0.55
-    if (root.threatLevel >= 1) return root.blinkPhase ? 1.0 : 0.35
-    return root.blinkPhase ? 1.0 : 0.75
   }
 
   function refresh() {

@@ -19,6 +19,21 @@ then revert the version strings back before leaving the repo in its normal
 release state. Do not leave the repo in a deliberately downgraded version
 unless the test specifically requires it.
 
+## 2026-08-29 — v1.6.2 (release-sync bump)
+
+This is a metadata-only release to keep the project version aligned across
+all shipped files after the `1.6.1` plugin-ID rename. The repo was already
+up to date with `origin/main`; this patch simply makes the plugin, monitor,
+status output, and changelog all agree on `1.6.2` without changing the
+actual firewall logic.
+
+### Version bump
+
+`1.6.1` → `1.6.2` in: `plugin/manifest.json`, `plugin/Model.js`,
+`plugin/Panel.qml`, `bin/omarchy-archalarm-monitor`, and
+`bin/omarchy-archalarm` (`write_off_status`). `README.md` and this file also
+note the release bump for changelog clarity.
+
 ## 2026-08-29 — v1.6.1 (plugin ID rename, from Claude)
 
 Alexander noticed his real first name ("alexander") was visible on the
