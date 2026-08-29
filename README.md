@@ -83,14 +83,11 @@ optionally set up passwordless toggling) and you're armed.
   script — `omarchy-archalarm setup-sudo` sets it up for you.
 - **In-app updater**: checks this repo on GitHub once per boot and at most
   once every 24h, and shows a small `⇪ UPDATE (vX.Y.Z)` badge next to the
-  version number when a newer tagged release is out. Click it to fetch,
-  check out the new tag, and re-run the installer, with a retro
-  dial-up-style progress screen while it works — no manual `git pull`
-  needed. A `[RELOAD SHELL NOW]` button appears once it's done — that's
-  the only way the panel actually picks up the new version, and it's a
-  deliberate click rather than automatic (see Version history). The
-  same button lives permanently under Settings too. See Known issues
-  for a first-click hiccup that isn't fixed yet.
+  version number when a newer tagged release is out. Click it to fetch and
+  stage the new worktree, then activate it on the next shell reload. The
+  panel now defers `install.sh` until the explicit `[RELOAD SHELL NOW]`
+  step so the live plugin path cannot be hot-reloaded mid-update. The same
+  button lives permanently under Settings too.
 
 ## How it stays safe to run
 
@@ -206,6 +203,11 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.6** — Version label now follows the live monitor (`status.version`)
+  instead of the QML build's compiled-in string, so the header updates right
+  after `[RELOAD SHELL NOW]` without a second manual shell restart.
+  `update.json`'s `currentVersion` is fixed to reflect the just-activated
+  release instead of the pre-activate one. See `AGENT_CHANGELOG.md`.
 - **1.5.23** — Deferred update activation (fixes first-click bar flicker).
   Monitor journal hardening: startup health check, `journalOk` in
   status.json, panel warning when the live feed is offline, optional
@@ -241,8 +243,9 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Known issues
 
-- None open at v1.5.23. The first-click update banner flicker was fixed by
-  deferring `install.sh` (symlink activation) until shell reload — see
+- None open at v1.6. The first-click update banner flicker was fixed by
+  deferring `install.sh` (symlink activation) until shell reload, and the
+  header now updates on its own once the monitor restarts — see
   `AGENT_CHANGELOG.md`.
 
 ## Future ideas (not implemented)
