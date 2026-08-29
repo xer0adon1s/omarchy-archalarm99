@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.22"
+  readonly property string appVersion: "1.5.23"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -24,7 +24,8 @@ Panel {
   property bool showWhitelist: false
 
   readonly property bool archalarmEnabled: status.enabled === true
-  readonly property int threatLevel: Number(status.threatLevel) || 0
+  readonly property bool journalOk: status.journalOk !== false
+  readonly property bool pendingReload: root.updateInfo.pendingActivate === true
 
   // ---------------------------------------------------------------- theme
   property string themeName: "archalarm"
@@ -418,9 +419,9 @@ Panel {
     "CONNECTING TO UPLINK...",
     "FETCHING LATEST BUILD.......",
     "VERIFYING RELEASE TAG.......",
-    "INSTALLING PATCH FILES......",
-    "RELOADING SERVICES..........",
-    "UPDATE COMPLETE. GO!!"
+    "STAGING RELEASE BUILD.......",
+    "AWAITING SHELL RELOAD.......",
+    "STAGE COMPLETE. GO!!"
   ]
 
   function installUpdate() {
@@ -505,7 +506,9 @@ Panel {
     id: shellRestartProc
     running: false
     command: ["setsid", "sh", "-c",
-      "omarchy restart shell > " + Quickshell.env("HOME")
+      "omarchy-archalarm-update activate >> " + Quickshell.env("HOME")
+      + "/.local/state/omarchy/archalarm/activate.log 2>&1; "
+      + "omarchy restart shell >> " + Quickshell.env("HOME")
       + "/.local/state/omarchy/archalarm/restart.log 2>&1"]
   }
 
@@ -712,6 +715,38 @@ Panel {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.showSettings = !root.showSettings
               }
+            }
+          }
+
+          // ---------- Pending reload banner ----------
+          Rectangle {
+            visible: root.pendingReload && !root.updateInstalling
+            width: parent.width
+            implicitHeight: pendingReloadText.implicitHeight + Style.space(8)
+            color: "transparent"
+            border.color: pendingReloadHover.hovered ? "#ffffff" : root.colCalm
+            border.width: 1
+            radius: 2
+
+            Text {
+              id: pendingReloadText
+              anchors.centerIn: parent
+              width: parent.width - Style.space(16)
+              wrapMode: Text.WordWrap
+              horizontalAlignment: Text.AlignHCenter
+              text: "⇪ v" + (root.updateInfo.pendingVersion || root.updateInfo.latestVersion)
+                + " STAGED — open Settings and click [RELOAD SHELL NOW] to apply"
+              color: pendingReloadHover.hovered ? "#ffffff" : root.colCalm
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            HoverHandler { id: pendingReloadHover }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.showSettings = true
             }
           }
 
@@ -937,7 +972,18 @@ Panel {
             }
           }
 
-          // ---------- Toggle error ----------
+          // ---------- Toggle error / journal warning ----------
+          Text {
+            visible: root.archalarmEnabled && !root.journalOk
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "!! Live feed offline: " + (status.journalError || "journalctl -k unavailable")
+            color: root.colElevated
+            font.family: "JetBrainsMono Nerd Font"
+            font.pixelSize: Style.font.caption
+            font.bold: true
+          }
+
           Text {
             visible: root.lastError !== ""
             width: parent.width
@@ -1751,7 +1797,7 @@ Panel {
               text: root.updateTimedOut
                 ? "> TIMED OUT — it may still finish in the background. Reload to check, or try again shortly."
                 : root.updateInstallOk
-                  ? "> INSTALLED v" + root.updateInfo.latestVersion + " — click below when ready to reload."
+                  ? "> STAGED v" + root.updateInfo.latestVersion + " — open Settings and click [RELOAD SHELL NOW] to apply."
                   : "> UPDATE FAILED: " + root.updateInstallError
               color: root.updateInstallOk && !root.updateTimedOut ? root.colCalm : root.colAlert
               font.family: "JetBrainsMono Nerd Font"

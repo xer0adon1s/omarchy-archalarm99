@@ -53,5 +53,9 @@ Next steps:
   2. (Optional) Enable passwordless arm/disarm/ban:
        omarchy-archalarm setup-sudo
 
+  3. (Optional) If the live feed stays empty while armed, add yourself to
+     the journal group (log out/in after), then restart the monitor:
+       sudo usermod -aG systemd-journal $USER
+
 The firewall always starts disarmed. Click the bar icon to arm it.
 EOF

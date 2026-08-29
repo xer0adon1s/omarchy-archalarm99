@@ -131,7 +131,8 @@ omarchy-archalarm report           # export an incident report, prints the file 
 
 omarchy-archalarm-update check         # check GitHub for a newer release (gated to 1/boot, 1/24h)
 omarchy-archalarm-update check force   # bypass the gate and check right now
-omarchy-archalarm-update install       # fetch + check out the latest tag, re-run install.sh
+omarchy-archalarm-update install       # fetch + stage the latest tag in a worktree (no symlink swap yet)
+omarchy-archalarm-update activate      # repoint live symlinks (run automatically on shell reload)
 ```
 
 `investigate` requires `whois` and the `claude` CLI on `PATH`; it makes a
@@ -205,6 +206,11 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.23** — Deferred update activation (fixes first-click bar flicker).
+  Monitor journal hardening: startup health check, `journalOk` in
+  status.json, panel warning when the live feed is offline, optional
+  `systemd-journal` group documented in `install.sh`. See
+  `AGENT_CHANGELOG.md`.
 - **1.5.1 – 1.5.22** — Diagnostic pass, GitHub repo, and an in-app
   updater — then round after round of actually using that updater and
   fixing the real bug each attempt turned up:
@@ -235,12 +241,9 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Known issues
 
-- **Clicking the update banner sometimes appears to crash/close the
-  panel on the first click**, with the whole bar flickering; clicking
-  it again works normally and completes the update. Not yet root-caused
-  — no crash or coredump shows up in the logs for it, unlike the
-  restart-mechanism bugs already fixed (see Version history), so it's
-  likely a separate, still-open issue. Workaround: just click it again.
+- None open at v1.5.23. The first-click update banner flicker was fixed by
+  deferring `install.sh` (symlink activation) until shell reload — see
+  `AGENT_CHANGELOG.md`.
 
 ## Future ideas (not implemented)
 

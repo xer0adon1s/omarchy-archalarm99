@@ -1,8 +1,8 @@
 #!/bin/bash
 # omarchy-archalarm-update: checks GitHub for a newer tagged release and,
-# on request, pulls it in. The live app is entirely symlinks into this repo
-# checkout (see install.sh), so an update is just "fetch, checkout the new
-# tag, re-run install.sh" — nothing to copy, nothing to reinstall by hand.
+# on request, stages it in a git worktree. Symlink activation (install.sh)
+# is deferred to `activate`, which runs on shell reload — so repointing
+# the live plugin path never hot-reloads the bar mid-update animation.
 set -euo pipefail
 
 # Resolve through the ~/.local/bin symlink install.sh creates — this script
@@ -11,6 +11,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 STATE_DIR="$HOME/.local/state/omarchy/archalarm"
 UPDATE_FILE="$STATE_DIR/update.json"
+PENDING_FILE="$STATE_DIR/pending-activate.json"
 BOOT_ID_FILE="$STATE_DIR/last-boot-id"
 CHECK_INTERVAL_SEC=86400
 
@@ -35,12 +36,16 @@ sys.exit(0 if v('$1') > v('$2') else 1)
 
 write_update_json() {
   local checking="$1" available="$2" latest="$3" err="$4"
-  python3 - "$checking" "$available" "$latest" "$err" "$UPDATE_FILE" "$(current_version)" <<'PYEOF'
+  local pending_activate="${5:-false}"
+  local pending_version="${6:-}"
+  python3 - "$checking" "$available" "$latest" "$err" "$pending_activate" "$pending_version" "$UPDATE_FILE" "$(current_version)" <<'PYEOF'
 import json, os, sys, time
-checking, available, latest, err, path, current = sys.argv[1:7]
+checking, available, latest, err, pending_activate, pending_version, path, current = sys.argv[1:9]
 data = {
     "checking": checking == "true",
     "updateAvailable": available == "true",
+    "pendingActivate": pending_activate == "true",
+    "pendingVersion": pending_version,
     "currentVersion": current,
     "latestVersion": latest,
     "lastCheckAt": time.time(),
@@ -53,6 +58,29 @@ os.replace(tmp, path)
 PYEOF
 }
 
+write_pending_activate() {
+  local staged_dir="$1" staged_version="$2"
+  python3 - "$staged_dir" "$staged_version" "$PENDING_FILE" <<'PYEOF'
+import json, os, sys, time
+path, version, out = sys.argv[1], sys.argv[2], sys.argv[3]
+data = {"path": path, "version": version, "stagedAt": time.time()}
+tmp = out + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(data, f)
+os.replace(tmp, out)
+PYEOF
+}
+
+read_pending_path() {
+  [[ -f "$PENDING_FILE" ]] || return 1
+  python3 -c "import json; print(json.load(open('$PENDING_FILE'))['path'])" 2>/dev/null
+}
+
+read_pending_version() {
+  [[ -f "$PENDING_FILE" ]] || return 1
+  python3 -c "import json; print(json.load(open('$PENDING_FILE'))['version'])" 2>/dev/null
+}
+
 # Reads the last-known-good state without touching it — used so a "check"
 # call that's skipped (too soon since the last one) still leaves the panel
 # something sensible to display instead of going blank.
@@ -63,7 +91,7 @@ last_check_epoch() {
 
 cmd_check() {
   local force="${1:-}"
-  local boot_id last_boot now
+  local boot_id last_boot now pending_ver
   boot_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
   last_boot="$(cat "$BOOT_ID_FILE" 2>/dev/null || echo "")"
   now="$(date +%s)"
@@ -75,7 +103,9 @@ cmd_check() {
   echo "$boot_id" > "$BOOT_ID_FILE"
 
   if ! git -C "$REPO_DIR" fetch --tags --quiet origin 2>/dev/null; then
-    write_update_json false false "$(current_version)" "couldn't reach GitHub"
+    pending_ver="$(read_pending_version 2>/dev/null || true)"
+    write_update_json false false "$(current_version)" "couldn't reach GitHub" \
+      "$([[ -n "$pending_ver" ]] && echo true || echo false)" "${pending_ver:-}"
     cat "$UPDATE_FILE"
     return 1
   fi
@@ -83,13 +113,23 @@ cmd_check() {
   local latest current
   latest="$(latest_tag)"
   current="$(current_version)"
+  pending_ver="$(read_pending_version 2>/dev/null || true)"
 
-  if [[ -n "$latest" && "$latest" != "$current" ]] && version_gt "$latest" "$current"; then
-    write_update_json false true "$latest" ""
+  if [[ -n "$pending_ver" ]]; then
+    write_update_json false false "${pending_ver}" "" true "$pending_ver"
+  elif [[ -n "$latest" && "$latest" != "$current" ]] && version_gt "$latest" "$current"; then
+    write_update_json false true "$latest" "" false ""
   else
-    write_update_json false false "${latest:-$current}" ""
+    write_update_json false false "${latest:-$current}" "" false ""
   fi
   cat "$UPDATE_FILE"
+}
+
+compute_new_dir() {
+  local latest="$1"
+  local base_name
+  base_name="$(basename "$REPO_DIR" | sed -E 's/-v[0-9]+\.[0-9]+\.[0-9]+$//')"
+  printf '%s/%s-v%s' "$(dirname "$REPO_DIR")" "$base_name" "$latest"
 }
 
 cmd_install() {
@@ -98,48 +138,30 @@ cmd_install() {
     exit 1
   fi
 
-  # Every external call below is timeout-bounded. This isn't just about
-  # a slow network — a hang here is worse than a fast failure, since the
-  # QML side is waiting on this process to exit before it can show
-  # anything else, and a hung process never reaches the `|| true` on a
-  # best-effort step, only a genuine timeout does.
   echo "STEP:FETCH"
   timeout 30 git -C "$REPO_DIR" fetch --tags --quiet origin
 
-  local latest current
+  local latest current pending_ver new_dir old_dir
   latest="$(latest_tag)"
   current="$(current_version)"
   [[ -n "$latest" ]] || { echo "ERROR: no release tags found" >&2; exit 1; }
 
-  # A second click on a badge that hasn't refreshed yet (e.g. right after
-  # a restart from the first click already finished the update) must not
-  # redo the same install — new_dir below would compute to the exact
-  # directory this process is *currently running from*, and rm -rf'ing
-  # the live worktree out from under itself is how the previous bug
-  # actually manifested as "failed, something didn't exist."
-  if [[ "$latest" == "$current" ]]; then
-    write_update_json false false "$latest" ""
+  pending_ver="$(read_pending_version 2>/dev/null || true)"
+  if [[ -n "$pending_ver" && "$pending_ver" == "$latest" ]]; then
+    write_update_json false false "$latest" "" true "$latest"
     echo "STEP:DONE"
     return 0
   fi
 
-  # Checking out the new tag *in place* would rewrite Panel.qml/Model.js
-  # one file at a time while they're the exact files the running shell has
-  # symlinked and is watching — Omarchy's hot-reload fires mid-checkout,
-  # tearing down this very process and the animation with it. Instead,
-  # build the new version in a separate worktree, and only repoint the
-  # live symlinks (one atomic swap per link) once that's fully done.
-  # Strip any -vX.Y.Z this dir already has (from a previous update) before
-  # appending the new one, so directory names stay flat across repeated
-  # updates instead of nesting (...-v1.5.5-v1.5.6-v1.5.7).
-  local new_dir old_dir base_name
-  old_dir="$REPO_DIR"
-  base_name="$(basename "$REPO_DIR" | sed -E 's/-v[0-9]+\.[0-9]+\.[0-9]+$//')"
-  new_dir="$(dirname "$REPO_DIR")/$base_name-v$latest"
+  if [[ "$latest" == "$current" && -z "$pending_ver" ]]; then
+    write_update_json false false "$latest" "" false ""
+    echo "STEP:DONE"
+    return 0
+  fi
 
-  # Belt-and-suspenders on top of the up-to-date check above: never rm -rf
-  # the directory this process is actually running out of, no matter how
-  # new_dir ended up computed.
+  old_dir="$REPO_DIR"
+  new_dir="$(compute_new_dir "$latest")"
+
   if [[ "$new_dir" == "$old_dir" ]]; then
     echo "ERROR: refusing to rebuild the live worktree in place ($new_dir)" >&2
     exit 1
@@ -150,32 +172,49 @@ cmd_install() {
   rm -rf "$new_dir"
   timeout 30 git -C "$REPO_DIR" worktree add --quiet "$new_dir" "v$latest"
 
-  echo "STEP:INSTALL"
-  timeout 15 "$new_dir/install.sh" >/dev/null
+  # Stage only — install.sh repoints archalarm-current (and triggers Omarchy
+  # plugin hot-reload) only from `activate`, run on shell reload.
+  echo "STEP:STAGE"
+  write_pending_activate "$new_dir" "$latest"
+  write_update_json false false "$latest" "" true "$latest"
+  echo "STEP:DONE"
+}
 
-  echo "STEP:RELOAD"
+cmd_activate() {
+  local staged_dir staged_version
+  if [[ ! -f "$PENDING_FILE" ]]; then
+    return 0
+  fi
+
+  staged_dir="$(read_pending_path)" || {
+    rm -f "$PENDING_FILE"
+    echo "ERROR: invalid pending-activate.json" >&2
+    exit 1
+  }
+  staged_version="$(read_pending_version)" || staged_version=""
+
+  if [[ ! -d "$staged_dir" || ! -f "$staged_dir/install.sh" ]]; then
+    rm -f "$PENDING_FILE"
+    echo "ERROR: staged update path missing: $staged_dir" >&2
+    exit 1
+  fi
+
+  timeout 15 "$staged_dir/install.sh" >/dev/null
   timeout 10 systemctl --user daemon-reload
   if systemctl --user is-active --quiet omarchy-archalarm-monitor.service; then
     timeout 10 systemctl --user restart omarchy-archalarm-monitor.service
   fi
 
-  REPO_DIR="$new_dir"
-  write_update_json false false "$latest" ""
-  echo "STEP:DONE"
-
-  # Old worktrees are left in place rather than cleaned up here: `git
-  # worktree remove` doing anything unexpected — a stale lock, a
-  # filesystem hiccup — must never be able to stop this function from
-  # reaching the exit above. A tiny text-file repo accumulating a
-  # worktree per update is a rounding error; a stuck update animation
-  # is not.
+  rm -f "$PENDING_FILE"
+  write_update_json false false "${staged_version:-$(current_version)}" "" false ""
 }
 
 case "${1:-check}" in
   check) cmd_check "${2:-}" ;;
   install) cmd_install ;;
+  activate) cmd_activate ;;
   *)
-    echo "usage: omarchy-archalarm-update <check [force]|install>" >&2
+    echo "usage: omarchy-archalarm-update <check [force]|install|activate>" >&2
     exit 1
     ;;
 esac

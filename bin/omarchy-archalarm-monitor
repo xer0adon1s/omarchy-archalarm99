@@ -29,9 +29,10 @@ import sys
 import threading
 import time
 
-VERSION = "1.5.22"
+VERSION = "1.5.23"
 STATE_DIR = os.path.expanduser("~/.local/state/omarchy/archalarm")
 STATUS_FILE = os.path.join(STATE_DIR, "status.json")
+JOURNAL_LOG = os.path.join(STATE_DIR, "journal.log")
 BAN_FILE = os.path.join(STATE_DIR, "banned.txt")
 TRUST_FILE = os.path.join(STATE_DIR, "trusted.txt")
 MODE_FILE = os.path.join(STATE_DIR, "mode")
@@ -66,9 +67,33 @@ state = {
     "connectionCount": 0,
     "lastEventAt": 0,
     "lastEventText": "",
+    "journalOk": True,
+    "journalError": "",
 }
 
 _last_notify = 0.0
+
+
+def journal_accessible():
+    try:
+        result = subprocess.run(
+            ["journalctl", "-k", "-n", "1", "--no-pager", "-o", "cat"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def log_journal_error(message):
+    try:
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(JOURNAL_LOG, "a") as f:
+            f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}\n")
+    except OSError:
+        pass
 
 
 def read_mode():
@@ -318,6 +343,13 @@ def main():
     state["startedAt"] = time.time()
     state["mode"] = read_mode()
     state["knownSafe"] = read_knownsafe()
+    state["journalOk"] = journal_accessible()
+    if not state["journalOk"]:
+        state["journalError"] = (
+            "cannot read kernel journal — live feed disabled "
+            "(systemd-journal group or journald permissions)"
+        )
+        log_journal_error(state["journalError"])
     poll_ss()
     poll_banlist()
     atomic_write_status()
@@ -331,10 +363,20 @@ def main():
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
 
+    if not state["journalOk"]:
+        # Firewall still works; keep status fresh without a restart loop.
+        while True:
+            time.sleep(2)
+            poll_ss()
+            poll_banlist()
+            poll_mode()
+            atomic_write_status()
+
+    journal_log_fp = open(JOURNAL_LOG, "a")
     proc = subprocess.Popen(
         ["journalctl", "-k", "-f", "-n", "0", "--no-pager", "-o", "cat"],
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=journal_log_fp,
         text=True,
         bufsize=1,
     )
@@ -349,7 +391,12 @@ def main():
             if ready:
                 line = proc.stdout.readline()
                 if line == "":
-                    break  # journalctl died; let systemd restart us
+                    log_journal_error("journalctl -k exited unexpectedly")
+                    with state_lock:
+                        state["journalOk"] = False
+                        state["journalError"] = "journalctl -k stopped — live feed offline"
+                    atomic_write_status()
+                    break  # let systemd restart us
                 handle_kernel_line(line)
 
             now = time.time()
@@ -367,6 +414,10 @@ def main():
                 last_periodic_write = now
     finally:
         proc.terminate()
+        try:
+            journal_log_fp.close()
+        except Exception:
+            pass
         with state_lock:
             state["enabled"] = False
         atomic_write_status()

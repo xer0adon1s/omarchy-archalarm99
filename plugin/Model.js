@@ -22,7 +22,7 @@ function formatDuration(totalSeconds) {
 function defaultStatus() {
   return {
     enabled: false,
-    version: "1.5.22",
+    version: "1.5.23",
     mode: "stealth",
     knownSafe: "on",
     startedAt: 0,
@@ -37,6 +37,8 @@ function defaultStatus() {
     connectionCount: 0,
     lastEventAt: 0,
     lastEventText: "",
+    journalOk: true,
+    journalError: "",
     uptimeSec: 0,
     threatLevel: 0,
     now: Date.now() / 1000
@@ -69,6 +71,8 @@ function defaultUpdateInfo() {
   return {
     checking: false,
     updateAvailable: false,
+    pendingActivate: false,
+    pendingVersion: "",
     currentVersion: "",
     latestVersion: "",
     lastCheckAt: 0,
