@@ -18,6 +18,9 @@ BAN_FILE="$STATE_DIR/banned.txt"
 TRUST_FILE="$STATE_DIR/trusted.txt"
 MODE_FILE="$STATE_DIR/mode"
 KNOWNSAFE_FILE="$STATE_DIR/knownsafe"
+TRACES_FILE="$STATE_DIR/traces.jsonl"
+REPORTS_DIR="$STATE_DIR/reports"
+MAX_TRACES=20
 APPLY="$HOME/.local/bin/omarchy-archalarm-apply"
 
 mkdir -p "$STATE_DIR"
@@ -51,7 +54,7 @@ valid_ip() {
 }
 
 write_off_status() {
-  printf '{"enabled":false,"version":"1.5.4","mode":"%s","knownSafe":"%s","startedAt":0,"blockedTotal":0,"recentEvents":[],"topOffenders":[],"hostnames":{},"bannedIps":[%s],"trustedIps":[%s],"listenPorts":[],"connections":[],"connectionCount":0,"lastEventAt":0,"lastEventText":"","uptimeSec":0,"threatLevel":0,"now":%s}\n' \
+  printf '{"enabled":false,"version":"1.5.5","mode":"%s","knownSafe":"%s","startedAt":0,"blockedTotal":0,"recentEvents":[],"topOffenders":[],"hostnames":{},"bannedIps":[%s],"trustedIps":[%s],"listenPorts":[],"connections":[],"connectionCount":0,"lastEventAt":0,"lastEventText":"","uptimeSec":0,"threatLevel":0,"now":%s}\n' \
     "$(current_mode)" "$(current_knownsafe)" "$(list_to_json_array "$BAN_FILE")" "$(list_to_json_array "$TRUST_FILE")" "$(date +%s)" > "$STATUS_FILE"
 }
 
@@ -220,7 +223,129 @@ $whois_summary"
     echo "claude CLI not found on PATH" >&2
     exit 1
   fi
-  claude -p "$prompt" 2>&1
+
+  local result
+  result="$(claude -p "$prompt" 2>&1)"
+  printf '%s\n' "$result"
+
+  # Best-effort — a trace still prints and returns 0 even if this fails,
+  # since losing report history is never worth failing the actual trace.
+  python3 - "$ip" "$result" "$TRACES_FILE" "$MAX_TRACES" <<'PYEOF' 2>/dev/null || true
+import json, os, sys, time
+ip, result, path, maxn = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4])
+entries = []
+try:
+    with open(path) as f:
+        entries = [json.loads(line) for line in f if line.strip()]
+except OSError:
+    pass
+entries.append({"ts": time.time(), "ip": ip, "result": result})
+entries = entries[-maxn:]
+os.makedirs(os.path.dirname(path), exist_ok=True)
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    for e in entries:
+        f.write(json.dumps(e) + "\n")
+os.replace(tmp, path)
+PYEOF
+}
+
+cmd_report() {
+  mkdir -p "$REPORTS_DIR"
+  local out
+  out="$REPORTS_DIR/incident-$(date +%Y%m%d-%H%M%S).txt"
+  python3 - "$STATUS_FILE" "$TRACES_FILE" "$out" <<'PYEOF'
+import json, sys, time
+
+status_path, traces_path, out_path = sys.argv[1:4]
+
+
+def load_json(path, default):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+status = load_json(status_path, {})
+traces = []
+try:
+    with open(traces_path) as f:
+        traces = [json.loads(line) for line in f if line.strip()]
+except OSError:
+    pass
+
+
+def fmt_dt(ts):
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ts)) if ts else "--"
+
+
+def fmt_clock(ts):
+    return time.strftime("%H:%M:%S", time.localtime(ts)) if ts else "--:--:--"
+
+
+PATTERN_TAG = {"PORT_SCAN": "  [PORT SCAN]", "MASS_SCAN": "  [MASS SCAN]"}
+
+events = status.get("recentEvents", [])
+offenders = status.get("topOffenders", [])
+banned = status.get("bannedIps", [])
+trusted = status.get("trustedIps", [])
+
+lines = [
+    "ArchAlarm '99 -- Incident Report",
+    "Generated: " + fmt_dt(time.time()),
+    "Session started: " + fmt_dt(status.get("startedAt", 0)),
+    "Mode: " + str(status.get("mode", "?")).upper()
+    + " | Known-safe filter: " + str(status.get("knownSafe", "?")).upper(),
+    "",
+    "SUMMARY",
+    "  Total blocked (session): %d" % status.get("blockedTotal", 0),
+    "  Unique offenders in feed: %d" % len({e.get("srcIp") for e in events}),
+    "  Currently banned: %d" % len(banned),
+    "  Currently trusted: %d" % len(trusted),
+    "",
+]
+
+if offenders:
+    lines.append("TOP OFFENDERS")
+    for o in offenders:
+        lines.append("  %s (%d hits)" % (o.get("ip", "?"), o.get("count", 0)))
+    lines.append("")
+
+if events:
+    lines.append("RECENT EVENTS (most recent first)")
+    for e in events:
+        tag = PATTERN_TAG.get(e.get("pattern", ""), "")
+        lines.append("  [%s] %s -> :%s/%s%s" % (
+            fmt_clock(e.get("ts")), e.get("srcIp", "?"), e.get("dport", "?"),
+            e.get("proto", "?"), tag,
+        ))
+    lines.append("")
+
+if banned:
+    lines.append("BANLIST")
+    lines += ["  " + ip for ip in banned]
+    lines.append("")
+
+if trusted:
+    lines.append("WHITELIST")
+    lines += ["  " + ip for ip in trusted]
+    lines.append("")
+
+if traces:
+    lines.append("RECENT TRACES")
+    for t in traces:
+        lines.append("  [%s] %s:" % (fmt_dt(t.get("ts")), t.get("ip", "?")))
+        for line in str(t.get("result", "")).splitlines():
+            lines.append("    " + line)
+        lines.append("")
+
+with open(out_path, "w") as f:
+    f.write("\n".join(lines) + "\n")
+
+print(out_path)
+PYEOF
 }
 
 cmd_setup_sudo() {
@@ -260,8 +385,9 @@ case "${1:-status}" in
   untrust) cmd_untrust "${2:-}" ;;
   investigate) cmd_investigate "${2:-}" ;;
   setup-sudo) cmd_setup_sudo ;;
+  report) cmd_report ;;
   *)
-    echo "usage: omarchy-archalarm <on|off|toggle|status|mode <stealth|reject>|knownsafe <on|off>|ban <ip>|unban <ip>|trust <ip>|untrust <ip>|investigate <ip>|setup-sudo>" >&2
+    echo "usage: omarchy-archalarm <on|off|toggle|status|mode <stealth|reject>|knownsafe <on|off>|ban <ip>|unban <ip>|trust <ip>|untrust <ip>|investigate <ip>|setup-sudo|report>" >&2
     exit 1
     ;;
 esac

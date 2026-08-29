@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.4"
+  readonly property string appVersion: "1.5.5"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -270,6 +270,41 @@ Panel {
       } else {
         root.investigateReport = String(investigateStdout.text || "").trim()
       }
+    }
+  }
+
+  // ---------------------------------------------------- incident report
+  property string lastReportPath: ""
+  property string lastReportError: ""
+
+  function exportReport() {
+    if (reportProc.running) return
+    root.lastReportPath = ""
+    root.lastReportError = ""
+    reportProc.command = ["omarchy-archalarm", "report"]
+    reportProc.running = true
+  }
+
+  Timer {
+    id: reportClearTimer
+    interval: 8000
+    repeat: false
+    onTriggered: { root.lastReportPath = ""; root.lastReportError = "" }
+  }
+
+  Process {
+    id: reportProc
+    running: false
+    command: []
+    stdout: StdioCollector { id: reportStdout; waitForEnd: true }
+    stderr: StdioCollector { id: reportStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.lastReportError = String(reportStderr.text || "Report export failed").trim().split("\n").pop()
+      } else {
+        root.lastReportPath = String(reportStdout.text || "").trim()
+      }
+      reportClearTimer.restart()
     }
   }
 
@@ -1083,11 +1118,20 @@ Panel {
                   anchors.right: actionHints.left
                   anchors.rightMargin: Style.space(4)
                   elide: Text.ElideRight
-                  text: "[" + Model.formatClock(feedRow.modelData.ts) + "] " + feedRow.modelData.srcIp
+                  readonly property string patternLabel: Model.patternLabel(feedRow.modelData.pattern)
+                  // Pattern tag sits right after the timestamp (before the
+                  // IP/port) so it survives ElideRight even on a long line
+                  // with a resolved hostname — the classification matters
+                  // more than seeing every last detail of a truncated row.
+                  text: "[" + Model.formatClock(feedRow.modelData.ts) + "]"
+                    + (feedText.patternLabel !== "" ? " ⚠" + feedText.patternLabel : "")
+                    + " " + feedRow.modelData.srcIp
                     + (feedRow.host !== "" ? " (" + feedRow.host + ")" : "")
                     + " -> :" + feedRow.modelData.dport + " (" + feedRow.modelData.proto + ")"
                     + (feedRow.showBanned ? "  ☠ BANNED" : feedRow.showTrusted ? "  ✓ TRUSTED" : "")
-                  color: feedRow.showBanned ? root.colAlert : root.colCalm
+                  color: feedRow.showBanned ? root.colAlert
+                    : feedRow.showTrusted ? root.colCalm
+                    : (feedText.patternLabel !== "" ? root.colElevated : root.colCalm)
                   font.family: "JetBrainsMono Nerd Font"
                   font.pixelSize: Style.font.caption
                   Behavior on color { ColorAnimation { duration: 350 } }
@@ -1494,6 +1538,51 @@ Panel {
                 HoverHandler { id: trustRowHover }
               }
             }
+          }
+
+          // ---------- Incident report ----------
+          Row {
+            spacing: Style.space(6)
+            Text {
+              text: "[EXPORT INCIDENT REPORT]"
+              color: reportBtnHover.hovered ? "#ffffff" : root.dimText
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.caption
+              font.bold: true
+
+              HoverHandler { id: reportBtnHover }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: root.exportReport()
+              }
+            }
+            Text {
+              visible: reportProc.running
+              text: "writing..."
+              color: root.dimText
+              font.family: "JetBrainsMono Nerd Font"
+              font.italic: true
+              font.pixelSize: Style.font.caption
+            }
+          }
+          Text {
+            visible: root.lastReportPath !== ""
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "→ saved to " + root.lastReportPath
+            color: root.colCalm
+            font.family: "JetBrainsMono Nerd Font"
+            font.pixelSize: Style.font.caption
+          }
+          Text {
+            visible: root.lastReportError !== ""
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: "!! " + root.lastReportError
+            color: root.colAlert
+            font.family: "JetBrainsMono Nerd Font"
+            font.pixelSize: Style.font.caption
           }
 
           Text {

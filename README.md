@@ -63,7 +63,17 @@ optionally set up passwordless toggling) and you're armed.
 - **Reverse DNS** on blocked IPs, resolved in the background.
 - **AI trace**: click `[TRACE]` on any entry for a plain-English read on
   what a blocked IP actually is (reverse DNS + WHOIS piped through
-  `claude -p`).
+  `claude -p`). Each result is kept (last 20) so it can show up in an
+  incident report later.
+- **Scan pattern labeling**: the daemon tags a new blocked event `PSCAN`
+  when the same source hits 3+ different ports within 30s, or `MSCAN`
+  when 3+ different sources hit the same port within 30s — shown right in
+  the live feed instead of a generic entry, so an actual scan reads
+  differently from one stray connection attempt.
+- **Incident report export**: click `[EXPORT INCIDENT REPORT]` to dump the
+  current session — blocked events (with any scan-pattern tags), top
+  offenders, banlist, whitelist, and recent AI traces — to a timestamped
+  text file under `~/.local/state/omarchy/archalarm/reports/`.
 - Expandable **socket/port/top-offenders** views, a live feed with a digital
   rain idle animation, desktop notifications, and a **theme picker** (plus
   matching the live Omarchy system theme).
@@ -111,6 +121,7 @@ omarchy-archalarm trust <ip>       # always-allow, live if armed; also unbans <i
 omarchy-archalarm untrust <ip>
 omarchy-archalarm investigate <ip> # reverse DNS + WHOIS -> claude -p, prints assessment
 omarchy-archalarm setup-sudo       # install the passwordless-toggle sudoers rule
+omarchy-archalarm report           # export an incident report, prints the file path
 
 omarchy-archalarm-update check         # check GitHub for a newer release (gated to 1/boot, 1/24h)
 omarchy-archalarm-update check force   # bypass the gate and check right now
@@ -147,7 +158,9 @@ omarchy-archalarm99/
 
 State lives outside the repo, at `~/.local/state/omarchy/archalarm/`:
 `status.json` (polled by the panel every 1.5s), `banned.txt`, `trusted.txt`,
-`mode`, `knownsafe`, `panel-settings.json`, `update.json`, `last-boot-id`.
+`mode`, `knownsafe`, `panel-settings.json`, `update.json`, `last-boot-id`,
+`traces.jsonl` (last 20 AI trace results), `reports/` (exported incident
+reports).
 
 **Privilege boundary:** `omarchy-archalarm-apply` is the only script that
 runs as root (`sudo -n`, falling back to a `pkexec` prompt), and it only
@@ -174,6 +187,13 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.5** — Two "Future ideas" shipped: incident report export
+  (`[EXPORT INCIDENT REPORT]` in the panel, `omarchy-archalarm report` on
+  the CLI) and scan pattern labeling (`PSCAN`/`MSCAN` tags on feed
+  entries, computed by the daemon from a 30s window of recent events).
+  The pattern tag sits right after the timestamp rather than at the end
+  of the line, so it survives `ElideRight` truncation on a long row
+  instead of getting cut off along with everything else.
 - **1.5.4** — Verified end-to-end: rolled a live install back to v1.5.3 and
   used the real in-app updater to bring it forward to this release, to
   confirm fetch → checkout → reinstall → reload actually works and not
@@ -228,13 +248,8 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Future ideas (not implemented)
 
-- **Incident report export** — dump the current session (blocked events,
-  banlist, any trace reports) to a timestamped text file.
 - **Session summary on disarm** — a toast on DISARM: block count, unique IPs,
   top offender.
-- **Scan pattern labeling** — distinguish "many ports, one IP" (port scan)
-  from "one port, many IPs" (mass scanner) in the live feed instead of a
-  generic "BLOCKED".
 - **Auto-arm at login** — opt-in setting; stays off by default.
 
 ## License

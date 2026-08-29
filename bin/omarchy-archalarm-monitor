@@ -29,7 +29,7 @@ import sys
 import threading
 import time
 
-VERSION = "1.5.4"
+VERSION = "1.5.5"
 STATE_DIR = os.path.expanduser("~/.local/state/omarchy/archalarm")
 STATUS_FILE = os.path.join(STATE_DIR, "status.json")
 BAN_FILE = os.path.join(STATE_DIR, "banned.txt")
@@ -42,6 +42,8 @@ SS_POLL_SEC = 3
 BAN_FILE_POLL_SEC = 1
 DNS_TIMEOUT_SEC = 1.5
 MAX_HOSTNAME_CACHE = 500
+PATTERN_WINDOW_SEC = 30
+PATTERN_MIN_COUNT = 3
 
 LOG_LINE_RE = re.compile(r"ARCHALARM-DROP:")
 FIELD_RE = re.compile(r"(SRC|DST|DPT|SPT|PROTO)=(\S+)")
@@ -180,6 +182,28 @@ def resolve_hostname_async(ip):
     threading.Thread(target=worker, daemon=True).start()
 
 
+def classify_pattern(src, dport, now, existing_events):
+    """Labels a new event as part of an obvious pattern, using only the
+    events already in the feed — a snapshot judgment at the moment this
+    event is created, not retroactively applied to older entries.
+    """
+    window_start = now - PATTERN_WINDOW_SEC
+
+    same_src_ports = {e["dport"] for e in existing_events
+                       if e["srcIp"] == src and e["ts"] >= window_start}
+    same_src_ports.add(dport)
+    if len(same_src_ports) >= PATTERN_MIN_COUNT:
+        return "PORT_SCAN"
+
+    same_port_srcs = {e["srcIp"] for e in existing_events
+                       if e["dport"] == dport and e["ts"] >= window_start}
+    same_port_srcs.add(src)
+    if len(same_port_srcs) >= PATTERN_MIN_COUNT:
+        return "MASS_SCAN"
+
+    return ""
+
+
 def handle_kernel_line(line):
     if LOG_LINE_RE.search(line) is None:
         return
@@ -200,6 +224,7 @@ def handle_kernel_line(line):
         return
 
     with state_lock:
+        pattern = classify_pattern(src, dport, now, state["recentEvents"])
         state["blockedTotal"] += 1
         state["lastEventAt"] = now
         state["lastEventText"] = f"BLOCKED {src} -> :{dport} ({proto})"
@@ -208,6 +233,7 @@ def handle_kernel_line(line):
             "srcIp": src,
             "dport": dport,
             "proto": proto,
+            "pattern": pattern,
         })
         del state["recentEvents"][MAX_EVENTS:]
         state["topOffenders"][src] = state["topOffenders"].get(src, 0) + 1
@@ -215,7 +241,12 @@ def handle_kernel_line(line):
     if src != "?":
         resolve_hostname_async(src)
 
-    notify(f"Blocked inbound connection from {src} to port {dport}/{proto}")
+    if pattern == "PORT_SCAN":
+        notify(f"Port scan detected from {src} (port {dport}/{proto} and others)")
+    elif pattern == "MASS_SCAN":
+        notify(f"Mass scan detected on port {dport}/{proto} ({src} and others)")
+    else:
+        notify(f"Blocked inbound connection from {src} to port {dport}/{proto}")
     atomic_write_status()
 
 

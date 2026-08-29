@@ -22,7 +22,7 @@ function formatDuration(totalSeconds) {
 function defaultStatus() {
   return {
     enabled: false,
-    version: "1.5.4",
+    version: "1.5.5",
     mode: "stealth",
     knownSafe: "on",
     startedAt: 0,
@@ -89,6 +89,18 @@ function parseUpdateInfo(raw) {
   } catch (e) {
     return defaultUpdateInfo()
   }
+}
+
+// A pattern label set by the daemon at the moment an event is created —
+// distinguishes "many ports, one IP" (port scan) from "one port, many
+// IPs" (mass scanner) instead of a generic blocked-connection entry.
+function patternLabel(pattern) {
+  // Short on purpose — this sits right after the timestamp in the feed
+  // row so it survives Text.ElideRight even when the rest of the line
+  // (hostname, action hints) doesn't fit.
+  if (pattern === "PORT_SCAN") return "PSCAN"
+  if (pattern === "MASS_SCAN") return "MSCAN"
+  return ""
 }
 
 function threatLabel(level) {
