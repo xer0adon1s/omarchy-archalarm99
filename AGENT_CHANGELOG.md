@@ -19,6 +19,48 @@ then revert the version strings back before leaving the repo in its normal
 release state. Do not leave the repo in a deliberately downgraded version
 unless the test specifically requires it.
 
+## 2026-08-29 — v1.6.1 (plugin ID rename, from Claude)
+
+Alexander noticed his real first name ("alexander") was visible on the
+public GitHub repo — as the plugin ID (`alexander.archalarm`) and the
+manifest `author` field — and asked whether that should be something more
+generic, since other people would install this on their own machines.
+
+### Is it actually a portability problem?
+
+No. The ID is a hardcoded literal string everywhere it appears (manifest
+`id`, `install.sh`'s `PLUGIN_LINK` path, `Panel.qml`'s `moduleName` /
+`ipcTarget`) — never derived from `$USER` or any real system account. It
+works identically on anyone's machine regardless of their own username,
+the same way installing Omarchy's built-in `omarchy.clock` doesn't become
+`bob.clock` on Bob's machine. Omarchy's own convention names a plugin
+`<author>.pluginname` — it identifies who *made* it, not who's running it.
+
+So this was purely a branding choice: use the public GitHub handle
+(`xer0adon1s`) instead of a real first name, since that's the identity
+already exposed on the repo.
+
+### What changed
+
+| File | Change |
+|------|--------|
+| `plugin/manifest.json` | `id`: `alexander.archalarm` → `xer0adon1s.archalarm`; `author`: `alexander` → `xer0adon1s` |
+| `plugin/Panel.qml` | `moduleName` / `ipcTarget` updated to match |
+| `install.sh` | `PLUGIN_LINK` points at the new ID path; removes the old `alexander.archalarm` symlink if present (migration for existing installs); prints a one-time note to update `shell.json` if the old symlink existed |
+| `README.md` | Path reference updated |
+
+**Agent note:** `install.sh`'s old-symlink cleanup only removes the plugin
+symlink — it does **not** rewrite the user's `shell.json` bar layout
+automatically (editing someone's bar config unprompted is riskier than
+printing instructions). If `cmd_install`/`cmd_activate` or any future
+migration logic needs to know whether this rename has already happened on
+a given machine, check for the old symlink's absence rather than assuming.
+
+### Version bump
+
+`1.6` → `1.6.1` in the usual five files. No functional/logic changes beyond
+the ID rename and the one-time migration cleanup in `install.sh`.
+
 ## 2026-08-29 — v1.6 (release)
 
 Ships everything developed across the 1.5.23 / 1.5.24 agent iterations as

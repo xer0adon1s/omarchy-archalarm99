@@ -11,10 +11,10 @@ import "Model.js" as Model
 // click, polling ~/.local/state/omarchy/archalarm/status.json via the CLI.
 Panel {
   id: root
-  moduleName: "alexander.archalarm"
-  ipcTarget: "alexander.archalarm"
+  moduleName: "xer0adon1s.archalarm"
+  ipcTarget: "xer0adon1s.archalarm"
 
-  readonly property string appVersion: "1.6"
+  readonly property string appVersion: "1.6.1"
   // Shown in the header/footer — prefer the live monitor version so a
   // successful activate updates the label on the next status poll even when
   // the shell restart doesn't fully reload this QML file.

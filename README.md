@@ -140,7 +140,7 @@ live Claude API call and typically takes a few seconds.
 ## Architecture
 
 This repo *is* the install — everything under `~/.local/bin`,
-`~/.config/omarchy/plugins/alexander.archalarm`, and the systemd user unit
+`~/.config/omarchy/plugins/xer0adon1s.archalarm`, and the systemd user unit
 is a symlink, but not straight into a checkout: they all point through one
 fixed indirection, `~/.local/share/omarchy/archalarm-current`, which is
 itself a symlink to whichever checkout is currently live. Running
@@ -203,6 +203,13 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.6.1** — Renamed the plugin ID and author from `alexander.archalarm`
+  to `xer0adon1s.archalarm` so the identity baked into the repo matches the
+  public GitHub handle rather than a first name. Purely a namespace/branding
+  change — the ID was never tied to any real system username and works the
+  same on anyone's machine either way. `install.sh` cleans up the old
+  symlink automatically; if your `shell.json` bar layout still references
+  the old ID, it prints a one-time note telling you to update it.
 - **1.6** — Version label now follows the live monitor (`status.version`)
   instead of the QML build's compiled-in string, so the header updates right
   after `[RELOAD SHELL NOW]` without a second manual shell restart.

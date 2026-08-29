@@ -6,7 +6,8 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BIN_DIR="$HOME/.local/bin"
-PLUGIN_LINK="$HOME/.config/omarchy/plugins/alexander.archalarm"
+PLUGIN_LINK="$HOME/.config/omarchy/plugins/xer0adon1s.archalarm"
+OLD_PLUGIN_LINK="$HOME/.config/omarchy/plugins/alexander.archalarm"
 SYSTEMD_DIR="$HOME/.config/systemd/user"
 CURRENT_LINK="$HOME/.local/share/omarchy/archalarm-current"
 
@@ -35,10 +36,30 @@ if [[ -e "$PLUGIN_LINK" && ! -L "$PLUGIN_LINK" ]]; then
 fi
 ln -sfn "$CURRENT_LINK/plugin" "$PLUGIN_LINK"
 
+# The plugin ID was renamed from alexander.archalarm to xer0adon1s.archalarm
+# in 1.6.1 — clean up the old symlink from a pre-rename install so it doesn't
+# linger as a dangling duplicate. Only remove it if it's still our own link.
+RENAMED_FROM_OLD_ID=false
+if [[ -L "$OLD_PLUGIN_LINK" ]]; then
+  rm -f "$OLD_PLUGIN_LINK"
+  RENAMED_FROM_OLD_ID=true
+fi
+
 ln -sf "$CURRENT_LINK/systemd/omarchy-archalarm-monitor.service" \
   "$SYSTEMD_DIR/omarchy-archalarm-monitor.service"
 
 systemctl --user daemon-reload
+
+if [[ "$RENAMED_FROM_OLD_ID" == "true" ]]; then
+  cat <<'EOF'
+
+NOTE: this update renamed the plugin ID from alexander.archalarm to
+xer0adon1s.archalarm. If your bar layout still references the old ID,
+update ~/.config/omarchy/shell.json:
+  { "id": "alexander.archalarm" }  ->  { "id": "xer0adon1s.archalarm" }
+then run: omarchy restart shell
+EOF
+fi
 
 cat <<'EOF'
 
@@ -46,7 +67,7 @@ ArchAlarm '99 is installed.
 
 Next steps:
   1. Add the bar widget: open ~/.config/omarchy/shell.json and add
-       { "id": "alexander.archalarm" }
+       { "id": "xer0adon1s.archalarm" }
      to the "right" array under "bar" -> "layout", then run:
        omarchy restart shell
 
