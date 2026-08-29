@@ -86,8 +86,10 @@ optionally set up passwordless toggling) and you're armed.
   version number when a newer tagged release is out. Click it to fetch,
   check out the new tag, and re-run the installer, with a retro
   dial-up-style progress screen while it works — no manual `git pull`
-  needed. Restarts the Omarchy shell itself once the install finishes,
-  since that's the only way the panel actually picks up the new version.
+  needed. A `[RELOAD SHELL NOW]` button appears once it's done — that's
+  the only way the panel actually picks up the new version, and it's a
+  deliberate click rather than automatic (see the 1.5.16 changelog
+  entry for why). The same button lives permanently under Settings too.
 
 ## How it stays safe to run
 
@@ -197,6 +199,25 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.16** — Stopped auto-triggering the shell restart after a
+  successful install. On a real run, `omarchy restart shell` killed the
+  running bar but the relaunch step silently didn't happen, leaving no
+  bar at all until someone ran it again by hand — and since the Process
+  that ran it had no stdout/stderr capture, there was no way to see why.
+  A kill with no relaunch is a strictly worse failure than a panel that
+  needs a manual click, so restarting the shell is now only ever a
+  deliberate action: a `[RELOAD SHELL NOW]` button on the install result
+  screen, plus a permanent copy of the same button under Settings so
+  there's always a way to trigger one even if that screen gets
+  dismissed first. The likely cause is an environment difference
+  between a Quickshell-spawned child process and an interactive shell
+  (`omarchy restart shell` reads `HYPRLAND_INSTANCE_SIGNATURE` to talk
+  to Hyprland, with a fallback only when that variable is completely
+  unset) — not confirmed, since the failure wasn't reproducible on
+  demand, which is exactly why this is now a manual action with logged
+  output instead of a silent automatic one. If the button itself ever
+  fails to bring the bar back, running `omarchy restart shell` in an
+  actual terminal is the reliable fallback.
 - **1.5.15** — Verification release for the 1.5.13 redundant-click fix:
   a live install from v1.5.14 through the actual button/CLI path,
   including calling `install` several times back-to-back after it

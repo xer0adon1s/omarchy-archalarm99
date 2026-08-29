@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.15"
+  readonly property string appVersion: "1.5.16"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -451,35 +451,17 @@ Panel {
     root.updateInstalling = false
     root.updateInstallOk = root._updateProcOk
     root.updateResultShowing = true
-    if (root._updateProcOk) {
-      // The install swaps which directory the live symlinks point at —
-      // Panel.qml and Model.js are already the new version's files on
-      // disk, but this *running* component was compiled from the old
-      // ones and keeps executing until the process that loaded it is
-      // gone. Neither the file watcher's hot-reload nor rescanPlugins
-      // re-resolves a retargeted symlink, only a full shell restart
-      // does. A silent 1.8s pause before the whole bar vanishes read as
-      // a crash, not a restart — count down visibly instead so it's
-      // unambiguous that this is expected.
-      root.restartCountdown = 3
-      restartCountdownTimer.restart()
-    } else {
+    // Deliberately NOT auto-triggering a shell restart here anymore.
+    // omarchy restart shell first kills the running instance, then
+    // relaunches a new one — and on a real run from this exact call
+    // path, the kill succeeded but the relaunch silently didn't, since
+    // this Process has no stdout/stderr capture to explain why, leaving
+    // no bar running at all until a human intervened. A kill with no
+    // relaunch is a strictly worse failure than a panel that needs a
+    // manual click, so restarting is now only ever a deliberate action
+    // via the button below — see the 1.5.16 changelog entry.
+    if (!root._updateProcOk) {
       updateResultDismissTimer.restart()
-    }
-  }
-
-  property int restartCountdown: 3
-
-  Timer {
-    id: restartCountdownTimer
-    interval: 1000
-    repeat: true
-    onTriggered: {
-      root.restartCountdown--
-      if (root.restartCountdown <= 0) {
-        restartCountdownTimer.stop()
-        shellRestartProc.running = true
-      }
     }
   }
 
@@ -507,10 +489,24 @@ Panel {
     onTriggered: root.updateResultShowing = false
   }
 
+  property string shellRestartError: ""
+
   Process {
     id: shellRestartProc
     running: false
     command: ["omarchy", "restart", "shell"]
+    stdout: StdioCollector { id: shellRestartStdout; waitForEnd: true }
+    stderr: StdioCollector { id: shellRestartStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      // If this fails, the panel that would show the error is itself
+      // gone or about to be — there's nothing to show it in. Logged so
+      // it's at least visible in the shell's own output if this run
+      // survives to tell about it.
+      if (exitCode !== 0) {
+        var msg = String(shellRestartStderr.text || shellRestartStdout.text || "").trim()
+        console.warn("omarchy restart shell failed (exit " + exitCode + "): " + msg)
+      }
+    }
   }
 
   Timer {
@@ -851,11 +847,46 @@ Panel {
             }
 
             Text {
+              text: "RELOAD SHELL:"
+              color: root.dimText
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              topPadding: Style.space(6)
+            }
+
+            Text {
+              width: parent.width
+              wrapMode: Text.WordWrap
+              text: "Restarts the whole Omarchy bar — needed after an update to actually see the new version, or any time the panel looks stuck or stale."
+              color: root.faintText
+              font.family: "JetBrainsMono Nerd Font"
+              font.italic: true
+              font.pixelSize: Math.max(8, Style.font.caption - 1)
+            }
+
+            Text {
+              text: "[RELOAD SHELL NOW]"
+              color: manualReloadHover.hovered ? "#ffffff" : root.dimText
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.caption
+              font.bold: true
+
+              HoverHandler { id: manualReloadHover }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: shellRestartProc.running = true
+              }
+            }
+
+            Text {
               text: "[CLOSE SETTINGS]"
               color: closeSettingsHover.hovered ? "#ffffff" : root.dimText
               font.family: "JetBrainsMono Nerd Font"
               font.pixelSize: Style.font.caption
               font.bold: true
+              topPadding: Style.space(6)
 
               HoverHandler { id: closeSettingsHover }
               MouseArea {
@@ -1720,7 +1751,7 @@ Panel {
               text: root.updateTimedOut
                 ? "> TIMED OUT — it may still finish in the background. Reload to check, or try again shortly."
                 : root.updateInstallOk
-                  ? "> INSTALLED v" + root.updateInfo.latestVersion + " — reloading shell in " + root.restartCountdown + "..."
+                  ? "> INSTALLED v" + root.updateInfo.latestVersion + " — click below when ready to reload."
                   : "> UPDATE FAILED: " + root.updateInstallError
               color: root.updateInstallOk && !root.updateTimedOut ? root.colCalm : root.colAlert
               font.family: "JetBrainsMono Nerd Font"
@@ -1728,16 +1759,16 @@ Panel {
               font.bold: true
             }
 
-            // Always available once a result is showing, regardless of
-            // outcome — the automatic restart on success is timed to this
-            // same screen, but a manual way out means a hang or a failed
-            // auto-restart never leaves this stuck with no recourse.
+            // The only trigger for the shell restart — not automatic
+            // anymore. It's the one way to actually see the new version
+            // (see the 1.5.16 note on Panel.qml), so it's always shown
+            // once a result appears, success or failure.
             Text {
               visible: root.updateResultShowing && !root.updateInstalling
               width: Style.space(320)
               horizontalAlignment: Text.AlignHCenter
               text: "[RELOAD SHELL NOW]"
-              color: reloadNowHover.hovered ? "#ffffff" : root.dimText
+              color: reloadNowHover.hovered ? "#ffffff" : root.colCalm
               font.family: "JetBrainsMono Nerd Font"
               font.pixelSize: Style.font.caption
               font.bold: true
@@ -1746,10 +1777,7 @@ Panel {
               MouseArea {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
-                onClicked: {
-                  restartCountdownTimer.stop()
-                  shellRestartProc.running = true
-                }
+                onClicked: shellRestartProc.running = true
               }
             }
           }
