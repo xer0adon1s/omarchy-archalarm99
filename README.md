@@ -89,7 +89,8 @@ optionally set up passwordless toggling) and you're armed.
   needed. A `[RELOAD SHELL NOW]` button appears once it's done — that's
   the only way the panel actually picks up the new version, and it's a
   deliberate click rather than automatic (see Version history). The
-  same button lives permanently under Settings too.
+  same button lives permanently under Settings too. See Known issues
+  for a first-click hiccup that isn't fixed yet.
 
 ## How it stays safe to run
 
@@ -231,6 +232,15 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
   DNS, stealth/reject mode, passwordless sudoers option.
 - **1.0** — Initial release: ARM/DISARM, live blocked-connection feed, threat
   meter, inbound-only nftables backend.
+
+## Known issues
+
+- **Clicking the update banner sometimes appears to crash/close the
+  panel on the first click**, with the whole bar flickering; clicking
+  it again works normally and completes the update. Not yet root-caused
+  — no crash or coredump shows up in the logs for it, unlike the
+  restart-mechanism bugs already fixed (see Version history), so it's
+  likely a separate, still-open issue. Workaround: just click it again.
 
 ## Future ideas (not implemented)
 
