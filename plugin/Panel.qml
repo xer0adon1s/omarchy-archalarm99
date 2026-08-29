@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.2"
+  readonly property string appVersion: "1.5.3"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -610,23 +610,6 @@ Panel {
                 font.pixelSize: Style.font.caption
                 topPadding: Style.font.title - Style.font.caption
               }
-              Text {
-                id: updateBadge
-                visible: root.updateInfo.updateAvailable && !root.updateInstalling
-                text: "⇪ UPDATE (v" + root.updateInfo.latestVersion + ")"
-                color: updateBadgeHover.hovered ? "#ffffff" : root.colElevated
-                font.family: "JetBrainsMono Nerd Font"
-                font.pixelSize: Style.font.caption
-                font.bold: true
-                topPadding: Style.font.title - Style.font.caption
-
-                HoverHandler { id: updateBadgeHover }
-                MouseArea {
-                  anchors.fill: parent
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.installUpdate()
-                }
-              }
             }
 
             Text {
@@ -643,6 +626,37 @@ Panel {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.showSettings = !root.showSettings
               }
+            }
+          }
+
+          // ---------- Update banner ----------
+          Rectangle {
+            visible: root.updateInfo.updateAvailable && !root.updateInstalling
+            width: parent.width
+            implicitHeight: updateBannerText.implicitHeight + Style.space(8)
+            color: "transparent"
+            border.color: updateBannerHover.hovered ? "#ffffff" : root.colElevated
+            border.width: 1
+            radius: 2
+
+            Text {
+              id: updateBannerText
+              anchors.centerIn: parent
+              width: parent.width - Style.space(16)
+              wrapMode: Text.WordWrap
+              horizontalAlignment: Text.AlignHCenter
+              text: "⇪ UPDATE AVAILABLE — v" + root.updateInfo.latestVersion + " (click to install)"
+              color: updateBannerHover.hovered ? "#ffffff" : root.colElevated
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.caption
+              font.bold: true
+            }
+
+            HoverHandler { id: updateBannerHover }
+            MouseArea {
+              anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
+              onClicked: root.installUpdate()
             }
           }
 

@@ -5,7 +5,10 @@
 # tag, re-run install.sh" — nothing to copy, nothing to reinstall by hand.
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve through the ~/.local/bin symlink install.sh creates — this script
+# is never run from its real path, so BASH_SOURCE alone would resolve
+# relative to the symlink's directory instead of the repo.
+REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 STATE_DIR="$HOME/.local/state/omarchy/archalarm"
 UPDATE_FILE="$STATE_DIR/update.json"
 BOOT_ID_FILE="$STATE_DIR/last-boot-id"

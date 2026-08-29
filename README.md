@@ -174,6 +174,14 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.3** — Two real bugs found by actually running the 1.5.2 updater
+  end-to-end: `omarchy-archalarm-update` derived its own location from
+  `$BASH_SOURCE`, but it's always invoked through the `~/.local/bin`
+  symlink, so it was resolving to the wrong directory entirely and every
+  check silently failed with "couldn't reach GitHub." Also, the `⇪ UPDATE`
+  badge lived inline in the header next to the gear icon with no width
+  cap, so a longer version string would run into it — moved to its own
+  full-width banner underneath instead.
 - **1.5.2** — Moved to a real GitHub repo (`bin/`, `plugin/`, `systemd/`) —
   everything under `~/.local/bin`, the Omarchy plugin directory, and the
   systemd user unit is now a symlink into this checkout, installed via
