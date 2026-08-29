@@ -195,6 +195,9 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.11** — Verified 1.5.10 for real: timed a full install from a live
+  v1.5.10 through the actual worktree-add/install.sh/systemctl path to
+  this release, confirming it completes in seconds with no hang.
 - **1.5.10** — Fixed the update flow actually hanging on a real click:
   the "best-effort" cleanup step at the end of `install` (removing the
   now-unused old worktree) had no timeout, so if it ever stalled — a
