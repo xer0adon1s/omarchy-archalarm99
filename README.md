@@ -197,6 +197,11 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.15** — Verification release for the 1.5.13 redundant-click fix:
+  a live install from v1.5.14 through the actual button/CLI path,
+  including calling `install` several times back-to-back after it
+  already succeeded, confirming nothing gets deleted and every
+  redundant call safely short-circuits.
 - **1.5.14** — Added a version-compare guard on the update banner
   itself: it now only shows when the reported latest version is
   actually newer than this exact component's own compiled-in version,
