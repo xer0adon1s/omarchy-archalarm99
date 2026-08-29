@@ -1,0 +1,128 @@
+#!/bin/bash
+# omarchy-archalarm-update: checks GitHub for a newer tagged release and,
+# on request, pulls it in. The live app is entirely symlinks into this repo
+# checkout (see install.sh), so an update is just "fetch, checkout the new
+# tag, re-run install.sh" — nothing to copy, nothing to reinstall by hand.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+STATE_DIR="$HOME/.local/state/omarchy/archalarm"
+UPDATE_FILE="$STATE_DIR/update.json"
+BOOT_ID_FILE="$STATE_DIR/last-boot-id"
+CHECK_INTERVAL_SEC=86400
+
+mkdir -p "$STATE_DIR"
+
+current_version() {
+  python3 -c "import json; print(json.load(open('$REPO_DIR/plugin/manifest.json'))['version'])" 2>/dev/null || echo "unknown"
+}
+
+latest_tag() {
+  git -C "$REPO_DIR" tag -l 'v*' | sed 's/^v//' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+}
+
+version_gt() {
+  # $1 > $2, as dotted-integer versions
+  python3 -c "
+def v(s): return tuple(int(x) for x in s.split('.'))
+import sys
+sys.exit(0 if v('$1') > v('$2') else 1)
+" 2>/dev/null
+}
+
+write_update_json() {
+  local checking="$1" available="$2" latest="$3" err="$4"
+  python3 - "$checking" "$available" "$latest" "$err" "$UPDATE_FILE" "$(current_version)" <<'PYEOF'
+import json, os, sys, time
+checking, available, latest, err, path, current = sys.argv[1:7]
+data = {
+    "checking": checking == "true",
+    "updateAvailable": available == "true",
+    "currentVersion": current,
+    "latestVersion": latest,
+    "lastCheckAt": time.time(),
+    "error": err,
+}
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(data, f)
+os.replace(tmp, path)
+PYEOF
+}
+
+# Reads the last-known-good state without touching it — used so a "check"
+# call that's skipped (too soon since the last one) still leaves the panel
+# something sensible to display instead of going blank.
+last_check_epoch() {
+  [[ -f "$UPDATE_FILE" ]] || { echo 0; return; }
+  python3 -c "import json; print(int(json.load(open('$UPDATE_FILE')).get('lastCheckAt', 0)))" 2>/dev/null || echo 0
+}
+
+cmd_check() {
+  local force="${1:-}"
+  local boot_id last_boot now
+  boot_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
+  last_boot="$(cat "$BOOT_ID_FILE" 2>/dev/null || echo "")"
+  now="$(date +%s)"
+
+  if [[ "$force" != "force" && "$boot_id" == "$last_boot" && $(( now - $(last_check_epoch) )) -lt $CHECK_INTERVAL_SEC ]]; then
+    [[ -f "$UPDATE_FILE" ]] && cat "$UPDATE_FILE"
+    return 0
+  fi
+  echo "$boot_id" > "$BOOT_ID_FILE"
+
+  if ! git -C "$REPO_DIR" fetch --tags --quiet origin 2>/dev/null; then
+    write_update_json false false "$(current_version)" "couldn't reach GitHub"
+    cat "$UPDATE_FILE"
+    return 1
+  fi
+
+  local latest current
+  latest="$(latest_tag)"
+  current="$(current_version)"
+
+  if [[ -n "$latest" && "$latest" != "$current" ]] && version_gt "$latest" "$current"; then
+    write_update_json false true "$latest" ""
+  else
+    write_update_json false false "${latest:-$current}" ""
+  fi
+  cat "$UPDATE_FILE"
+}
+
+cmd_install() {
+  if [[ -n "$(git -C "$REPO_DIR" status --porcelain 2>/dev/null)" ]]; then
+    echo "ERROR: repo has local changes — commit or stash them before updating" >&2
+    exit 1
+  fi
+
+  echo "STEP:FETCH"
+  git -C "$REPO_DIR" fetch --tags --quiet origin
+
+  local latest
+  latest="$(latest_tag)"
+  [[ -n "$latest" ]] || { echo "ERROR: no release tags found" >&2; exit 1; }
+
+  echo "STEP:CHECKOUT"
+  git -C "$REPO_DIR" checkout --quiet "v$latest"
+
+  echo "STEP:INSTALL"
+  "$REPO_DIR/install.sh" >/dev/null
+
+  echo "STEP:RELOAD"
+  systemctl --user daemon-reload
+  if systemctl --user is-active --quiet omarchy-archalarm-monitor.service; then
+    systemctl --user restart omarchy-archalarm-monitor.service
+  fi
+
+  write_update_json false false "$latest" ""
+  echo "STEP:DONE"
+}
+
+case "${1:-check}" in
+  check) cmd_check "${2:-}" ;;
+  install) cmd_install ;;
+  *)
+    echo "usage: omarchy-archalarm-update <check [force]|install>" >&2
+    exit 1
+    ;;
+esac

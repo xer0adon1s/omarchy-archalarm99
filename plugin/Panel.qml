@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.1"
+  readonly property string appVersion: "1.5.2"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -333,6 +333,126 @@ Panel {
     }
   }
 
+  // -------------------------------------------------------- update check
+  // The backend script (omarchy-archalarm-update) does its own gating —
+  // it only actually hits GitHub once per boot or once per 24h, so it's
+  // safe to call this from the panel far more often than that.
+  property var updateInfo: Model.defaultUpdateInfo()
+
+  function checkForUpdate() {
+    if (!updateCheckProc.running) updateCheckProc.running = true
+  }
+
+  Process {
+    id: updateCheckProc
+    running: false
+    command: ["omarchy-archalarm-update", "check"]
+    stdout: StdioCollector {
+      id: updateCheckStdout
+      waitForEnd: true
+      onStreamFinished: root.updateInfo = Model.parseUpdateInfo(text)
+    }
+  }
+
+  Timer {
+    // Fires once when the plugin loads — covers "check on fresh boot",
+    // since that's when this component first comes alive.
+    interval: 1
+    running: true
+    repeat: false
+    onTriggered: root.checkForUpdate()
+  }
+
+  Timer {
+    // Nudges the backend periodically so its 24h gate eventually lets a
+    // real check through even on a shell that's stayed up for days.
+    interval: 30 * 60 * 1000
+    running: true
+    repeat: true
+    onTriggered: root.checkForUpdate()
+  }
+
+  // ---------------------------------------------------- update installer
+  property bool updateInstalling: false
+  property bool updateInstallOk: false
+  property string updateInstallError: ""
+  property bool _updateProcDone: false
+  property bool _updateProcOk: false
+  property int installLineIndex: 0
+  readonly property var installScript: [
+    "CONNECTING TO UPLINK...",
+    "FETCHING LATEST BUILD.......",
+    "VERIFYING RELEASE TAG.......",
+    "INSTALLING PATCH FILES......",
+    "RELOADING SERVICES..........",
+    "UPDATE COMPLETE. GO!!"
+  ]
+
+  function installUpdate() {
+    if (root.updateInstalling) return
+    root.updateInstalling = true
+    root.updateInstallOk = false
+    root.updateInstallError = ""
+    root._updateProcDone = false
+    root._updateProcOk = false
+    root.installLineIndex = 0
+    installLineTimer.restart()
+    updateInstallProc.running = true
+  }
+
+  // Only closes the installer once BOTH the real process has exited and
+  // the cosmetic line-by-line animation has played through — whichever
+  // finishes last. Keeps it from looking rushed on a fast update or
+  // stalled-looking on a slow one.
+  property bool updateResultShowing: false
+
+  function _maybeFinishInstall() {
+    if (!root._updateProcDone) return
+    if (root.installLineIndex < root.installScript.length) return
+    root.updateInstalling = false
+    root.updateInstallOk = root._updateProcOk
+    root.updateResultShowing = true
+    updateResultDismissTimer.restart()
+    if (root._updateProcOk) root.checkForUpdate()
+  }
+
+  Timer {
+    id: updateResultDismissTimer
+    interval: 4000
+    repeat: false
+    onTriggered: root.updateResultShowing = false
+  }
+
+  Timer {
+    id: installLineTimer
+    interval: 550
+    repeat: true
+    running: false
+    onTriggered: {
+      root.installLineIndex++
+      if (root.installLineIndex >= root.installScript.length) {
+        installLineTimer.stop()
+        root._maybeFinishInstall()
+      }
+    }
+  }
+
+  Process {
+    id: updateInstallProc
+    running: false
+    command: ["omarchy-archalarm-update", "install"]
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { id: updateInstallStderr; waitForEnd: true }
+    onExited: function(exitCode) {
+      root._updateProcDone = true
+      root._updateProcOk = exitCode === 0
+      if (exitCode !== 0) {
+        root.updateInstallError = String(updateInstallStderr.text || "update failed").trim().split("\n").pop()
+      }
+      root._maybeFinishInstall()
+    }
+  }
+
   // ------------------------------------------------------- dial-up intro
   property bool bootShowing: false
   property int bootLineIndex: 0
@@ -489,6 +609,23 @@ Panel {
                 font.family: "JetBrainsMono Nerd Font"
                 font.pixelSize: Style.font.caption
                 topPadding: Style.font.title - Style.font.caption
+              }
+              Text {
+                id: updateBadge
+                visible: root.updateInfo.updateAvailable && !root.updateInstalling
+                text: "⇪ UPDATE (v" + root.updateInfo.latestVersion + ")"
+                color: updateBadgeHover.hovered ? "#ffffff" : root.colElevated
+                font.family: "JetBrainsMono Nerd Font"
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                topPadding: Style.font.title - Style.font.caption
+
+                HoverHandler { id: updateBadgeHover }
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.installUpdate()
+                }
               }
             }
 
@@ -1378,6 +1515,52 @@ Panel {
                 font.pixelSize: Style.font.body
                 font.bold: true
               }
+            }
+          }
+        }
+
+        // ---------- Update installer overlay ----------
+        Rectangle {
+          id: updateOverlay
+          anchors.fill: parent
+          color: root.crtBg
+          visible: root.updateInstalling || root.updateResultShowing
+          z: 11
+
+          MouseArea {
+            anchors.fill: parent
+            enabled: root.updateResultShowing && !root.updateInstalling
+            onClicked: root.updateResultShowing = false
+          }
+
+          Column {
+            anchors.centerIn: parent
+            spacing: Style.space(8)
+
+            Repeater {
+              model: root.updateInstalling ? root.installLineIndex : root.installScript.length
+              Text {
+                required property int index
+                text: "> " + root.installScript[index]
+                color: (root.updateInstalling && index === root.installLineIndex - 1 && root.blinkPhase) ? "#ffffff" : root.colCalm
+                font.family: "JetBrainsMono Nerd Font"
+                font.pixelSize: Style.font.body
+                font.bold: true
+              }
+            }
+
+            Text {
+              visible: root.updateResultShowing && !root.updateInstalling
+              width: Style.space(320)
+              wrapMode: Text.WordWrap
+              horizontalAlignment: Text.AlignHCenter
+              text: root.updateInstallOk
+                ? "> NOW RUNNING v" + root.updateInfo.currentVersion
+                : "> UPDATE FAILED: " + root.updateInstallError
+              color: root.updateInstallOk ? root.colCalm : root.colAlert
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.body
+              font.bold: true
             }
           }
         }

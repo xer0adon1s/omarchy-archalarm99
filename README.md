@@ -69,6 +69,12 @@ optionally set up passwordless toggling) and you're armed.
   matching the live Omarchy system theme).
 - **Passwordless toggle** available via a sudoers rule scoped to exactly one
   script — `omarchy-archalarm setup-sudo` sets it up for you.
+- **In-app updater**: checks this repo on GitHub once per boot and at most
+  once every 24h, and shows a small `⇪ UPDATE (vX.Y.Z)` badge next to the
+  version number when a newer tagged release is out. Click it to fetch,
+  check out the new tag, and re-run the installer, with a retro
+  dial-up-style progress screen while it works — no manual `git pull`
+  needed.
 
 ## How it stays safe to run
 
@@ -105,6 +111,10 @@ omarchy-archalarm trust <ip>       # always-allow, live if armed; also unbans <i
 omarchy-archalarm untrust <ip>
 omarchy-archalarm investigate <ip> # reverse DNS + WHOIS -> claude -p, prints assessment
 omarchy-archalarm setup-sudo       # install the passwordless-toggle sudoers rule
+
+omarchy-archalarm-update check         # check GitHub for a newer release (gated to 1/boot, 1/24h)
+omarchy-archalarm-update check force   # bypass the gate and check right now
+omarchy-archalarm-update install       # fetch + check out the latest tag, re-run install.sh
 ```
 
 `investigate` requires `whois` and the `claude` CLI on `PATH`; it makes a
@@ -125,7 +135,8 @@ omarchy-archalarm99/
 ├── bin/
 │   ├── omarchy-archalarm           # unprivileged CLI
 │   ├── omarchy-archalarm-apply     # privileged: nft table/element add/remove
-│   └── omarchy-archalarm-monitor   # unprivileged daemon: tails kernel log + ss
+│   ├── omarchy-archalarm-monitor   # unprivileged daemon: tails kernel log + ss
+│   └── omarchy-archalarm-update    # unprivileged: checks/pulls new releases
 ├── plugin/
 │   ├── manifest.json    # Omarchy plugin registration
 │   ├── Panel.qml         # bar icon + popup panel
@@ -136,7 +147,7 @@ omarchy-archalarm99/
 
 State lives outside the repo, at `~/.local/state/omarchy/archalarm/`:
 `status.json` (polled by the panel every 1.5s), `banned.txt`, `trusted.txt`,
-`mode`, `knownsafe`, `panel-settings.json`.
+`mode`, `knownsafe`, `panel-settings.json`, `update.json`, `last-boot-id`.
 
 **Privilege boundary:** `omarchy-archalarm-apply` is the only script that
 runs as root (`sudo -n`, falling back to a `pkexec` prompt), and it only
@@ -163,6 +174,16 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.2** — Moved to a real GitHub repo (`bin/`, `plugin/`, `systemd/`) —
+  everything under `~/.local/bin`, the Omarchy plugin directory, and the
+  systemd user unit is now a symlink into this checkout, installed via
+  `install.sh`. Added an in-app updater: checks GitHub for a newer tagged
+  release once per boot and at most once every 24h, shows an `⇪ UPDATE`
+  badge next to the version number when one's out, and installs it with a
+  retro dial-up-style progress animation on click. Added
+  `omarchy-archalarm setup-sudo`, which generates and installs the
+  passwordless-toggle sudoers rule for whoever's actually running it
+  (the old setup command had this machine's home directory hardcoded).
 - **1.5.1** — Full diagnostic pass, two real bugs fixed: the "always starts
   disarmed" self-heal check compared against `"enabled":true` with no space,
   but status.json is always written with a space after the colon, so it

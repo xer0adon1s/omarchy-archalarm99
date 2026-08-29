@@ -22,7 +22,7 @@ function formatDuration(totalSeconds) {
 function defaultStatus() {
   return {
     enabled: false,
-    version: "1.5.1",
+    version: "1.5.2",
     mode: "stealth",
     knownSafe: "on",
     startedAt: 0,
@@ -62,6 +62,32 @@ function parseStatus(raw) {
     return parsed
   } catch (e) {
     return defaultStatus()
+  }
+}
+
+function defaultUpdateInfo() {
+  return {
+    checking: false,
+    updateAvailable: false,
+    currentVersion: "",
+    latestVersion: "",
+    lastCheckAt: 0,
+    error: ""
+  }
+}
+
+function parseUpdateInfo(raw) {
+  var text = String(raw || "").trim()
+  if (text === "") return defaultUpdateInfo()
+  try {
+    var parsed = JSON.parse(text)
+    var base = defaultUpdateInfo()
+    for (var key in base) {
+      if (parsed[key] === undefined || parsed[key] === null) parsed[key] = base[key]
+    }
+    return parsed
+  } catch (e) {
+    return defaultUpdateInfo()
   }
 }
 

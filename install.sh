@@ -11,7 +11,7 @@ SYSTEMD_DIR="$HOME/.config/systemd/user"
 
 mkdir -p "$BIN_DIR" "$HOME/.config/omarchy/plugins" "$SYSTEMD_DIR"
 
-for script in omarchy-archalarm omarchy-archalarm-apply omarchy-archalarm-monitor; do
+for script in omarchy-archalarm omarchy-archalarm-apply omarchy-archalarm-monitor omarchy-archalarm-update; do
   chmod +x "$REPO_DIR/bin/$script"
   ln -sf "$REPO_DIR/bin/$script" "$BIN_DIR/$script"
 done
