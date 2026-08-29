@@ -204,6 +204,9 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.21** — Verification release for 1.5.20: a real update from
+  v1.5.20, watching the journal directly, confirming only the one
+  `archalarm-current` symlink move triggers a reload — not six.
 - **1.5.20** — Reduced an update to a single symlink change. Every live
   path (the CLI, the daemon, the plugin, the systemd unit) used to point
   straight at the checked-out version, so `install.sh` had to repoint
