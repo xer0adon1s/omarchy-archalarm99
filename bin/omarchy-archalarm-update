@@ -38,7 +38,9 @@ write_update_json() {
   local checking="$1" available="$2" latest="$3" err="$4"
   local pending_activate="${5:-false}"
   local pending_version="${6:-}"
-  python3 - "$checking" "$available" "$latest" "$err" "$pending_activate" "$pending_version" "$UPDATE_FILE" "$(current_version)" <<'PYEOF'
+  local current_explicit="${7:-}"
+  local current="${current_explicit:-$(current_version)}"
+  python3 - "$checking" "$available" "$latest" "$err" "$pending_activate" "$pending_version" "$UPDATE_FILE" "$current" <<'PYEOF'
 import json, os, sys, time
 checking, available, latest, err, pending_activate, pending_version, path, current = sys.argv[1:9]
 data = {
@@ -206,7 +208,7 @@ cmd_activate() {
   fi
 
   rm -f "$PENDING_FILE"
-  write_update_json false false "${staged_version:-$(current_version)}" "" false ""
+  write_update_json false false "${staged_version:-$(current_version)}" "" false "" "${staged_version}"
 }
 
 case "${1:-check}" in

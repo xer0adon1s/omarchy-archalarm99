@@ -14,7 +14,14 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.23"
+  readonly property string appVersion: "1.6"
+  // Shown in the header/footer — prefer the live monitor version so a
+  // successful activate updates the label on the next status poll even when
+  // the shell restart doesn't fully reload this QML file.
+  readonly property string displayVersion: {
+    var live = String(status.version || "").trim()
+    return live !== "" ? live : root.appVersion
+  }
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -461,7 +468,9 @@ Panel {
     // relaunch is a strictly worse failure than a panel that needs a
     // manual click, so restarting is now only ever a deliberate action
     // via the button below — see the 1.5.22 changelog entry.
-    if (!root._updateProcOk) {
+    if (root._updateProcOk) {
+      root.checkForUpdate()
+    } else {
       updateResultDismissTimer.restart()
     }
   }
@@ -508,6 +517,7 @@ Panel {
     command: ["setsid", "sh", "-c",
       "omarchy-archalarm-update activate >> " + Quickshell.env("HOME")
       + "/.local/state/omarchy/archalarm/activate.log 2>&1; "
+      + "sleep 1; "
       + "omarchy restart shell >> " + Quickshell.env("HOME")
       + "/.local/state/omarchy/archalarm/restart.log 2>&1"]
   }
@@ -693,7 +703,7 @@ Panel {
                 font.bold: true
               }
               Text {
-                text: "v" + root.appVersion
+                text: "v" + root.displayVersion
                 color: root.dimText
                 font.family: "JetBrainsMono Nerd Font"
                 font.pixelSize: Style.font.caption
@@ -757,7 +767,7 @@ Panel {
             // must never claim an "update" older than what's already
             // running, however that state was arrived at.
             visible: root.updateInfo.updateAvailable && !root.updateInstalling
-              && Model.versionGt(root.updateInfo.latestVersion, root.appVersion)
+              && Model.versionGt(root.updateInfo.latestVersion, root.displayVersion)
             width: parent.width
             implicitHeight: updateBannerText.implicitHeight + Style.space(8)
             color: "transparent"
@@ -1725,7 +1735,7 @@ Panel {
           Text {
             width: parent.width
             wrapMode: Text.WordWrap
-            text: "ArchAlarm '99 v" + root.appVersion + " — inbound-only, outbound never touched. Esc to close."
+            text: "ArchAlarm '99 v" + root.displayVersion + " — inbound-only, outbound never touched. Esc to close."
             color: root.faintText
             font.family: "JetBrainsMono Nerd Font"
             font.italic: true
