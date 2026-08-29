@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.9"
+  readonly property string appVersion: "1.5.10"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -428,10 +428,12 @@ Panel {
     root.updateInstalling = true
     root.updateInstallOk = false
     root.updateInstallError = ""
+    root.updateTimedOut = false
     root._updateProcDone = false
     root._updateProcOk = false
     root.installLineIndex = 0
     installLineTimer.restart()
+    installTimeoutTimer.restart()
     updateInstallProc.running = true
   }
 
@@ -440,10 +442,12 @@ Panel {
   // finishes last. Keeps it from looking rushed on a fast update or
   // stalled-looking on a slow one.
   property bool updateResultShowing: false
+  property bool updateTimedOut: false
 
   function _maybeFinishInstall() {
     if (!root._updateProcDone) return
     if (root.installLineIndex < root.installScript.length) return
+    installTimeoutTimer.stop()
     root.updateInstalling = false
     root.updateInstallOk = root._updateProcOk
     root.updateResultShowing = true
@@ -459,6 +463,23 @@ Panel {
       shellRestartTimer.restart()
     } else {
       updateResultDismissTimer.restart()
+    }
+  }
+
+  // Hard ceiling so a hang anywhere in the backend (a stuck external
+  // command the backend's own timeouts didn't catch, a lost process) can
+  // never leave the animation frozen indefinitely with no way out. Every
+  // step the backend runs is itself timeout-bounded well under this.
+  Timer {
+    id: installTimeoutTimer
+    interval: 110000
+    repeat: false
+    onTriggered: {
+      if (!root.updateInstalling) return
+      installLineTimer.stop()
+      root.updateInstalling = false
+      root.updateTimedOut = true
+      root.updateResultShowing = true
     }
   }
 
@@ -1681,13 +1702,40 @@ Panel {
               width: Style.space(320)
               wrapMode: Text.WordWrap
               horizontalAlignment: Text.AlignHCenter
-              text: root.updateInstallOk
-                ? "> INSTALLED v" + root.updateInfo.latestVersion + " — reloading shell..."
-                : "> UPDATE FAILED: " + root.updateInstallError
-              color: root.updateInstallOk ? root.colCalm : root.colAlert
+              text: root.updateTimedOut
+                ? "> TIMED OUT — it may still finish in the background. Reload to check, or try again shortly."
+                : root.updateInstallOk
+                  ? "> INSTALLED v" + root.updateInfo.latestVersion + " — reloading shell..."
+                  : "> UPDATE FAILED: " + root.updateInstallError
+              color: root.updateInstallOk && !root.updateTimedOut ? root.colCalm : root.colAlert
               font.family: "JetBrainsMono Nerd Font"
               font.pixelSize: Style.font.body
               font.bold: true
+            }
+
+            // Always available once a result is showing, regardless of
+            // outcome — the automatic restart on success is timed to this
+            // same screen, but a manual way out means a hang or a failed
+            // auto-restart never leaves this stuck with no recourse.
+            Text {
+              visible: root.updateResultShowing && !root.updateInstalling
+              width: Style.space(320)
+              horizontalAlignment: Text.AlignHCenter
+              text: "[RELOAD SHELL NOW]"
+              color: reloadNowHover.hovered ? "#ffffff" : root.dimText
+              font.family: "JetBrainsMono Nerd Font"
+              font.pixelSize: Style.font.caption
+              font.bold: true
+
+              HoverHandler { id: reloadNowHover }
+              MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                  shellRestartTimer.stop()
+                  shellRestartProc.running = true
+                }
+              }
             }
           }
         }

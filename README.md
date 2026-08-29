@@ -195,6 +195,22 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.10** — Fixed the update flow actually hanging on a real click:
+  the "best-effort" cleanup step at the end of `install` (removing the
+  now-unused old worktree) had no timeout, so if it ever stalled — a
+  stale lock, a filesystem hiccup, anything — the script never reached
+  the line that reports success, the QML side never got told the
+  process finished, and the panel sat frozen on "UPDATE COMPLETE. GO!!"
+  forever with no way out. Every external command `install` runs
+  (fetch, worktree add, install.sh, systemctl) is now timeout-bounded,
+  and the old-worktree cleanup is gone entirely rather than
+  best-effort — old worktrees are just left on disk, which costs
+  nothing for a repo this size. Also added two safety nets on the panel
+  side that don't depend on diagnosing the exact cause correctly: a
+  hard ceiling that ends the animation if nothing has happened after
+  110s, and a `[RELOAD SHELL NOW]` button that's always available once
+  a result is showing, independent of whether the automatic restart
+  fires.
 - **1.5.9** — Verified 1.5.8 for real: updated a live install from v1.5.8
   to this release through the actual button/CLI path and confirmed the
   shell restarts itself automatically once "UPDATE COMPLETE" shows, with

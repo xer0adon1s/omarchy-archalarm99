@@ -98,8 +98,13 @@ cmd_install() {
     exit 1
   fi
 
+  # Every external call below is timeout-bounded. This isn't just about
+  # a slow network — a hang here is worse than a fast failure, since the
+  # QML side is waiting on this process to exit before it can show
+  # anything else, and a hung process never reaches the `|| true` on a
+  # best-effort step, only a genuine timeout does.
   echo "STEP:FETCH"
-  git -C "$REPO_DIR" fetch --tags --quiet origin
+  timeout 30 git -C "$REPO_DIR" fetch --tags --quiet origin
 
   local latest
   latest="$(latest_tag)"
@@ -120,26 +125,29 @@ cmd_install() {
   new_dir="$(dirname "$REPO_DIR")/$base_name-v$latest"
 
   echo "STEP:CHECKOUT"
-  git -C "$REPO_DIR" worktree prune 2>/dev/null || true
+  timeout 10 git -C "$REPO_DIR" worktree prune 2>/dev/null || true
   rm -rf "$new_dir"
-  git -C "$REPO_DIR" worktree add --quiet "$new_dir" "v$latest"
+  timeout 30 git -C "$REPO_DIR" worktree add --quiet "$new_dir" "v$latest"
 
   echo "STEP:INSTALL"
-  "$new_dir/install.sh" >/dev/null
+  timeout 15 "$new_dir/install.sh" >/dev/null
 
   echo "STEP:RELOAD"
-  systemctl --user daemon-reload
+  timeout 10 systemctl --user daemon-reload
   if systemctl --user is-active --quiet omarchy-archalarm-monitor.service; then
-    systemctl --user restart omarchy-archalarm-monitor.service
+    timeout 10 systemctl --user restart omarchy-archalarm-monitor.service
   fi
-
-  # Best-effort — an orphaned old worktree is clutter, not a functional
-  # problem, so never fail the update over cleanup.
-  git -C "$new_dir" worktree remove "$old_dir" 2>/dev/null || true
 
   REPO_DIR="$new_dir"
   write_update_json false false "$latest" ""
   echo "STEP:DONE"
+
+  # Old worktrees are left in place rather than cleaned up here: `git
+  # worktree remove` doing anything unexpected — a stale lock, a
+  # filesystem hiccup — must never be able to stop this function from
+  # reaching the exit above. A tiny text-file repo accumulating a
+  # worktree per update is a rounding error; a stuck update animation
+  # is not.
 }
 
 case "${1:-check}" in
