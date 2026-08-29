@@ -197,6 +197,12 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.14** — Added a version-compare guard on the update banner
+  itself: it now only shows when the reported latest version is
+  actually newer than this exact component's own compiled-in version,
+  never trusting a cached check at face value. Mainly a defense against
+  stale state surviving a version jump, but a real safety net either
+  way, independent of whatever wrote the cache.
 - **1.5.13** — Fixed a genuinely destructive bug: a second `install`
   invocation while already on the latest version — a click on a badge
   that hadn't refreshed after the first click's own restart, or just an

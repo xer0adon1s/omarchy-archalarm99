@@ -22,7 +22,7 @@ function formatDuration(totalSeconds) {
 function defaultStatus() {
   return {
     enabled: false,
-    version: "1.5.13",
+    version: "1.5.14",
     mode: "stealth",
     knownSafe: "on",
     startedAt: 0,
@@ -89,6 +89,20 @@ function parseUpdateInfo(raw) {
   } catch (e) {
     return defaultUpdateInfo()
   }
+}
+
+// Dotted-integer version compare (a > b), e.g. for deciding whether an
+// update badge should actually show. Guards against acting on a stale
+// cached check — one written before this component's own version last
+// changed — claiming a version older than what's already running.
+function versionGt(a, b) {
+  var pa = String(a || "0").split(".").map(function(n) { return parseInt(n, 10) || 0 })
+  var pb = String(b || "0").split(".").map(function(n) { return parseInt(n, 10) || 0 })
+  for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+    var va = pa[i] || 0, vb = pb[i] || 0
+    if (va !== vb) return va > vb
+  }
+  return false
 }
 
 // A pattern label set by the daemon at the moment an event is created —

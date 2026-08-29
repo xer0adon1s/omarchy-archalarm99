@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.13"
+  readonly property string appVersion: "1.5.14"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -721,7 +721,12 @@ Panel {
 
           // ---------- Update banner ----------
           Rectangle {
+            // The version-compare guard is a safety net against a stale
+            // cached check outliving this component's own version — it
+            // must never claim an "update" older than what's already
+            // running, however that state was arrived at.
             visible: root.updateInfo.updateAvailable && !root.updateInstalling
+              && Model.versionGt(root.updateInfo.latestVersion, root.appVersion)
             width: parent.width
             implicitHeight: updateBannerText.implicitHeight + Style.space(8)
             color: "transparent"
