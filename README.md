@@ -204,6 +204,8 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.22** — Live user test of the full update button flow after the
+  1.5.20 single-symlink fix.
 - **1.5.21** — Verification release for 1.5.20: a real update from
   v1.5.20, watching the journal directly, confirming only the one
   `archalarm-current` symlink move triggers a reload — not six.
