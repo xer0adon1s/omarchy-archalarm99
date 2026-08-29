@@ -195,6 +195,10 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.9** — Verified 1.5.8 for real: updated a live install from v1.5.8
+  to this release through the actual button/CLI path and confirmed the
+  shell restarts itself automatically once "UPDATE COMPLETE" shows, with
+  no manual restart needed to see the new version.
 - **1.5.8** — Fixed a second real bug uncovered while verifying 1.5.6:
   the 1.5.6 fix stopped the *disruptive* mid-checkout reloads, but a
   single symlink retarget still isn't enough for the panel to actually

@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.8"
+  readonly property string appVersion: "1.5.9"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
