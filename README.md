@@ -142,15 +142,19 @@ live Claude API call and typically takes a few seconds.
 
 This repo *is* the install — everything under `~/.local/bin`,
 `~/.config/omarchy/plugins/alexander.archalarm`, and the systemd user unit
-is a symlink back into a checkout of it. Running `install.sh` by hand
-updates that checkout in place, so a manual `git pull` is all it takes.
-The in-app updater does it differently: it builds the new version in a
-separate `git worktree` (a sibling directory) and only repoints the live
-symlinks once that's fully checked out, so the files the running shell
-has open never change out from under it mid-update — see the 1.5.6 entry
-below for why that matters. The original clone/worktree is left in place
-after the first update rather than deleted (worktrees can't remove the
-"main" one); later updates clean up their own predecessor normally.
+is a symlink, but not straight into a checkout: they all point through one
+fixed indirection, `~/.local/share/omarchy/archalarm-current`, which is
+itself a symlink to whichever checkout is currently live. Running
+`install.sh` by hand updates that checkout in place, so a manual
+`git pull` is all it takes. The in-app updater does it differently: it
+builds the new version in a separate `git worktree` (a sibling directory)
+and, once that's fully checked out, repoints only `archalarm-current` —
+nothing downstream of it changes, so an update is a single symlink move
+rather than six. The files the running shell has open also never change
+out from under it mid-update this way — see the 1.5.6 and 1.5.20 entries
+below for why both of those matter. Old worktrees are left on disk rather
+than cleaned up (see 1.5.10) — a rounding error for a repo this size, and
+worth it for never risking the one currently in use.
 
 ```
 omarchy-archalarm99/
@@ -172,7 +176,8 @@ State lives outside the repo, at `~/.local/state/omarchy/archalarm/`:
 `status.json` (polled by the panel every 1.5s), `banned.txt`, `trusted.txt`,
 `mode`, `knownsafe`, `panel-settings.json`, `update.json`, `last-boot-id`,
 `traces.jsonl` (last 20 AI trace results), `reports/` (exported incident
-reports).
+reports), plus `~/.local/share/omarchy/archalarm-current` — the single
+symlink every live path resolves through (see Architecture above).
 
 **Privilege boundary:** `omarchy-archalarm-apply` is the only script that
 runs as root (`sudo -n`, falling back to a `pkexec` prompt), and it only
@@ -199,6 +204,14 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.20** — Reduced an update to a single symlink change. Every live
+  path (the CLI, the daemon, the plugin, the systemd unit) used to point
+  straight at the checked-out version, so `install.sh` had to repoint
+  all 6 of them individually on every update — and the whole bar
+  visibly flickered once per repoint, confirmed on a real update.
+  They now all point through one fixed indirection,
+  `~/.local/share/omarchy/archalarm-current`, and only *that* symlink
+  moves on an update; nothing downstream of it ever needs to change.
 - **1.5.19** — Verification release for 1.5.18: a real click of
   `[RELOAD SHELL NOW]` that actually brings the bar back on its own.
 - **1.5.18** — Found the actual root cause of the shell restart never

@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.19"
+  readonly property string appVersion: "1.5.20"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -459,7 +459,7 @@ Panel {
     // no bar running at all until a human intervened. A kill with no
     // relaunch is a strictly worse failure than a panel that needs a
     // manual click, so restarting is now only ever a deliberate action
-    // via the button below — see the 1.5.19 changelog entry.
+    // via the button below — see the 1.5.20 changelog entry.
     if (!root._updateProcOk) {
       updateResultDismissTimer.restart()
     }
@@ -1761,7 +1761,7 @@ Panel {
 
             // The only trigger for the shell restart — not automatic
             // anymore. It's the one way to actually see the new version
-            // (see the 1.5.19 note on Panel.qml), so it's always shown
+            // (see the 1.5.20 note on Panel.qml), so it's always shown
             // once a result appears, success or failure.
             Text {
               visible: root.updateResultShowing && !root.updateInstalling

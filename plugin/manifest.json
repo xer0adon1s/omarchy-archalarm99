@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "alexander.archalarm",
   "name": "Firewall",
-  "version": "1.5.19",
+  "version": "1.5.20",
   "author": "alexander",
   "license": "MIT",
   "description": "ArchAlarm '99 — a real nftables-backed inbound firewall with a ZoneAlarm/BlackICE-era monitor panel: live blocked-connection feed with reverse-DNS and one-click ban, a stealth/reject response mode, threat meter, and one-click on/off.",
