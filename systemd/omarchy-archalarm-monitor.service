@@ -1,0 +1,9 @@
+[Unit]
+Description=ArchAlarm '99 endpoint monitor
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/omarchy-archalarm-monitor
+Restart=on-failure
+RestartSec=3

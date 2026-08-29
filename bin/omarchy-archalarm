@@ -1,0 +1,267 @@
+#!/bin/bash
+# omarchy-archalarm: on/off/status/ban/trust control for ArchAlarm '99.
+# Runs unprivileged; the one privileged step (nft table/element add/remove)
+# is delegated to `sudo -n omarchy-archalarm-apply`. A sudoers.d rule scoped
+# to that exact script grants it passwordless — see the ArchAlarm setup
+# notes for the one-time command that installs it. -n means "never prompt":
+# if that rule isn't installed yet, this fails fast with a clear error
+# instead of hanging (there's no terminal here to type a password into).
+#
+# Always starts OFF: status never trusts a stale "enabled" flag left over
+# from before a reboot/crash — it's cross-checked against whether the
+# monitor daemon is actually running every time it's read.
+set -euo pipefail
+
+STATE_DIR="$HOME/.local/state/omarchy/archalarm"
+STATUS_FILE="$STATE_DIR/status.json"
+BAN_FILE="$STATE_DIR/banned.txt"
+TRUST_FILE="$STATE_DIR/trusted.txt"
+MODE_FILE="$STATE_DIR/mode"
+KNOWNSAFE_FILE="$STATE_DIR/knownsafe"
+APPLY="$HOME/.local/bin/omarchy-archalarm-apply"
+
+mkdir -p "$STATE_DIR"
+touch "$BAN_FILE" "$TRUST_FILE"
+[[ -f "$MODE_FILE" ]] || echo "stealth" > "$MODE_FILE"
+[[ -f "$KNOWNSAFE_FILE" ]] || echo "on" > "$KNOWNSAFE_FILE"
+
+current_mode() {
+  local m
+  m="$(cat "$MODE_FILE" 2>/dev/null || echo stealth)"
+  [[ "$m" == "reject" ]] && echo "reject" || echo "stealth"
+}
+
+current_knownsafe() {
+  local k
+  k="$(cat "$KNOWNSAFE_FILE" 2>/dev/null || echo on)"
+  [[ "$k" == "off" ]] && echo "off" || echo "on"
+}
+
+daemon_active() {
+  systemctl --user is-active --quiet omarchy-archalarm-monitor.service
+}
+
+# IPv4/IPv6-shaped only. Guards against garbage ending up in banned.txt/
+# trusted.txt and, more importantly, against anything but an address
+# reaching the privileged apply script's `nft add element ... { $ip }` —
+# that argument is nft's own grammar, not a shell, but there's no reason
+# to hand it anything that isn't an address.
+valid_ip() {
+  [[ "$1" =~ ^[0-9a-fA-F:.]+$ ]]
+}
+
+write_off_status() {
+  printf '{"enabled":false,"version":"1.5.1","mode":"%s","knownSafe":"%s","startedAt":0,"blockedTotal":0,"recentEvents":[],"topOffenders":[],"hostnames":{},"bannedIps":[%s],"trustedIps":[%s],"listenPorts":[],"connections":[],"connectionCount":0,"lastEventAt":0,"lastEventText":"","uptimeSec":0,"threatLevel":0,"now":%s}\n' \
+    "$(current_mode)" "$(current_knownsafe)" "$(list_to_json_array "$BAN_FILE")" "$(list_to_json_array "$TRUST_FILE")" "$(date +%s)" > "$STATUS_FILE"
+}
+
+list_to_json_array() {
+  local out=""
+  while IFS= read -r ip; do
+    [[ -z "$ip" ]] && continue
+    if [[ -n "$out" ]]; then out+=,; fi
+    out+="\"$ip\""
+  done < "$1"
+  printf '%s' "$out"
+}
+
+cmd_on() {
+  if ! sudo -n "$APPLY" on "$(current_mode)" "$BAN_FILE" "$TRUST_FILE" "$(current_knownsafe)"; then
+    echo "Failed to enable ArchAlarm — run the sudoers setup command (see README) so this can run passwordlessly" >&2
+    exit 1
+  fi
+  systemctl --user daemon-reload
+  systemctl --user restart omarchy-archalarm-monitor.service
+  echo "ArchAlarm '99: ONLINE ($(current_mode) mode)"
+}
+
+cmd_off() {
+  sudo -n "$APPLY" off || true
+  systemctl --user stop omarchy-archalarm-monitor.service 2>/dev/null || true
+  write_off_status
+  echo "ArchAlarm '99: OFFLINE"
+}
+
+cmd_toggle() {
+  if daemon_active; then
+    cmd_off
+  else
+    cmd_on
+  fi
+}
+
+cmd_status() {
+  # Self-heal: a status.json claiming "enabled" with no daemon actually
+  # running (stale from before a reboot, a crash, or a killed service)
+  # never gets shown as armed. This is what guarantees a fresh boot always
+  # reads as OFF, with no separate "reset on start" step needed.
+  if [[ -f "$STATUS_FILE" ]] && ! daemon_active; then
+    if grep -qE '"enabled":[[:space:]]*true' "$STATUS_FILE" 2>/dev/null; then
+      write_off_status
+    fi
+  fi
+  if [[ -f "$STATUS_FILE" ]]; then
+    cat "$STATUS_FILE"
+  else
+    write_off_status
+    cat "$STATUS_FILE"
+  fi
+}
+
+cmd_mode() {
+  local new_mode="${1:-}"
+  case "$new_mode" in
+    stealth|reject) ;;
+    *) echo "usage: omarchy-archalarm mode <stealth|reject>" >&2; exit 1 ;;
+  esac
+  echo "$new_mode" > "$MODE_FILE"
+  # Live-switch if currently armed; otherwise the new mode just takes effect
+  # next time it's turned on.
+  if daemon_active; then
+    sudo -n "$APPLY" on "$new_mode" "$BAN_FILE" "$TRUST_FILE" "$(current_knownsafe)"
+  fi
+  echo "mode: $new_mode"
+}
+
+cmd_knownsafe() {
+  local new_val="${1:-}"
+  case "$new_val" in
+    on|off) ;;
+    *) echo "usage: omarchy-archalarm knownsafe <on|off>" >&2; exit 1 ;;
+  esac
+  echo "$new_val" > "$KNOWNSAFE_FILE"
+  if daemon_active; then
+    sudo -n "$APPLY" on "$(current_mode)" "$BAN_FILE" "$TRUST_FILE" "$new_val"
+  fi
+  echo "knownsafe: $new_val"
+}
+
+cmd_ban() {
+  local ip="${1:-}"
+  valid_ip "$ip" || { echo "usage: omarchy-archalarm ban <ip>" >&2; exit 1; }
+  grep -vxF "$ip" "$TRUST_FILE" > "$TRUST_FILE.tmp" 2>/dev/null || true
+  mv "$TRUST_FILE.tmp" "$TRUST_FILE"
+  if ! grep -qxF "$ip" "$BAN_FILE" 2>/dev/null; then
+    echo "$ip" >> "$BAN_FILE"
+  fi
+  if daemon_active; then
+    sudo -n "$APPLY" ban "$ip"
+  fi
+  echo "banned: $ip"
+}
+
+cmd_unban() {
+  local ip="${1:-}"
+  valid_ip "$ip" || { echo "usage: omarchy-archalarm unban <ip>" >&2; exit 1; }
+  grep -vxF "$ip" "$BAN_FILE" > "$BAN_FILE.tmp" 2>/dev/null || true
+  mv "$BAN_FILE.tmp" "$BAN_FILE"
+  if daemon_active; then
+    sudo -n "$APPLY" unban "$ip"
+  fi
+  echo "unbanned: $ip"
+}
+
+cmd_trust() {
+  local ip="${1:-}"
+  valid_ip "$ip" || { echo "usage: omarchy-archalarm trust <ip>" >&2; exit 1; }
+  grep -vxF "$ip" "$BAN_FILE" > "$BAN_FILE.tmp" 2>/dev/null || true
+  mv "$BAN_FILE.tmp" "$BAN_FILE"
+  if ! grep -qxF "$ip" "$TRUST_FILE" 2>/dev/null; then
+    echo "$ip" >> "$TRUST_FILE"
+  fi
+  if daemon_active; then
+    sudo -n "$APPLY" trust "$ip"
+  fi
+  echo "trusted: $ip"
+}
+
+cmd_untrust() {
+  local ip="${1:-}"
+  valid_ip "$ip" || { echo "usage: omarchy-archalarm untrust <ip>" >&2; exit 1; }
+  grep -vxF "$ip" "$TRUST_FILE" > "$TRUST_FILE.tmp" 2>/dev/null || true
+  mv "$TRUST_FILE.tmp" "$TRUST_FILE"
+  if daemon_active; then
+    sudo -n "$APPLY" untrust "$ip"
+  fi
+  echo "untrusted: $ip"
+}
+
+cmd_investigate() {
+  local ip="${1:-}"
+  # Basic sanity check — this string gets embedded in a whois call and an
+  # LLM prompt, so reject anything that isn't IPv4/IPv6-shaped.
+  [[ "$ip" =~ ^[0-9a-fA-F:.]+$ ]] || { echo "usage: omarchy-archalarm investigate <ip>" >&2; exit 1; }
+
+  local hostname whois_summary
+  hostname="$(python3 -c "
+import socket
+try:
+    print(socket.gethostbyaddr('$ip')[0])
+except Exception:
+    print('none')
+" 2>/dev/null || echo "none")"
+
+  if command -v whois >/dev/null 2>&1; then
+    whois_summary="$(timeout 6 whois "$ip" 2>/dev/null \
+      | grep -iE '^(OrgName|Organization|NetName|Country|ASNumber|origin|descr|netname|country|abuse-mailbox):' \
+      | sort -u | head -12 || true)"
+  fi
+  [[ -z "${whois_summary:-}" ]] && whois_summary="(no whois data available)"
+
+  local prompt
+  prompt="You are a terse security analyst annotating a personal archalarm's blocked-connection log for a home user. Given this data about a blocked inbound connection attempt, write a plain-English assessment in 2-4 sentences: what this traffic most likely is (routine internet background scanning, a known cloud/hosting/scanning provider, a specific benign service, or something genuinely worth worrying about) and one practical takeaway. No markdown, no headers, no bullet points — plain prose only, under 80 words.
+
+IP: $ip
+Reverse DNS: $hostname
+WHOIS:
+$whois_summary"
+
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "claude CLI not found on PATH" >&2
+    exit 1
+  fi
+  claude -p "$prompt" 2>&1
+}
+
+cmd_setup_sudo() {
+  # Generates the sudoers rule for *this* user's actual $APPLY path — never
+  # hand-edit a copy-pasted path from someone else's machine, it won't match.
+  local tmp
+  tmp="$(mktemp)"
+  printf '%s ALL=(root) NOPASSWD: %s\n' "$(whoami)" "$APPLY" > "$tmp"
+  echo "Installing a sudoers rule scoped to exactly:"
+  echo "  $APPLY"
+  echo "This lets on/off/ban/mode/knownsafe run without a password prompt."
+  echo "Two graphical password prompts will follow (syntax check, then install)."
+  if ! pkexec visudo -c -f "$tmp"; then
+    echo "Syntax check failed — aborting, nothing installed." >&2
+    rm -f "$tmp"
+    exit 1
+  fi
+  if ! pkexec install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/archalarm; then
+    echo "Install failed — nothing was written to /etc/sudoers.d/" >&2
+    rm -f "$tmp"
+    exit 1
+  fi
+  rm -f "$tmp"
+  echo "Done. omarchy-archalarm on/off/ban/etc. will no longer prompt for a password."
+}
+
+case "${1:-status}" in
+  on) cmd_on ;;
+  off) cmd_off ;;
+  toggle) cmd_toggle ;;
+  status) cmd_status ;;
+  mode) cmd_mode "${2:-}" ;;
+  knownsafe) cmd_knownsafe "${2:-}" ;;
+  ban) cmd_ban "${2:-}" ;;
+  unban) cmd_unban "${2:-}" ;;
+  trust) cmd_trust "${2:-}" ;;
+  untrust) cmd_untrust "${2:-}" ;;
+  investigate) cmd_investigate "${2:-}" ;;
+  setup-sudo) cmd_setup_sudo ;;
+  *)
+    echo "usage: omarchy-archalarm <on|off|toggle|status|mode <stealth|reject>|knownsafe <on|off>|ban <ip>|unban <ip>|trust <ip>|untrust <ip>|investigate <ip>|setup-sudo>" >&2
+    exit 1
+    ;;
+esac

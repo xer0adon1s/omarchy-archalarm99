@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""
+omarchy-archalarm-monitor — unprivileged endpoint monitor for ArchAlarm '99.
+
+Runs entirely as the normal user (no root needed for anything in this file):
+  - tails `journalctl -k -f` for the "ARCHALARM-DROP:" lines the nft rules
+    in omarchy-archalarm-apply log, and turns each into a block event
+  - resolves a reverse-DNS hostname for each new offending IP in a
+    background thread (never blocks event processing)
+  - polls `ss` for a lightweight snapshot of listening ports and active
+    connections
+  - writes a small JSON status file that the bar plugin polls to draw the
+    icon and the panel's live feed
+
+Only starts while the archalarm is toggled on (see omarchy-archalarm), and
+only ever *reads* system state — it never touches nft, iptables, or any
+archalarm rule itself. Banning/unbanning an IP is still a privileged nft
+operation handled by omarchy-archalarm-apply; this daemon only reflects the
+persisted ban list in status.json for the panel to display.
+"""
+import json
+import os
+import re
+import select
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+
+VERSION = "1.5.1"
+STATE_DIR = os.path.expanduser("~/.local/state/omarchy/archalarm")
+STATUS_FILE = os.path.join(STATE_DIR, "status.json")
+BAN_FILE = os.path.join(STATE_DIR, "banned.txt")
+TRUST_FILE = os.path.join(STATE_DIR, "trusted.txt")
+MODE_FILE = os.path.join(STATE_DIR, "mode")
+KNOWNSAFE_FILE = os.path.join(STATE_DIR, "knownsafe")
+MAX_EVENTS = 40
+NOTIFY_COOLDOWN_SEC = 8
+SS_POLL_SEC = 3
+BAN_FILE_POLL_SEC = 1
+DNS_TIMEOUT_SEC = 1.5
+MAX_HOSTNAME_CACHE = 500
+
+LOG_LINE_RE = re.compile(r"ARCHALARM-DROP:")
+FIELD_RE = re.compile(r"(SRC|DST|DPT|SPT|PROTO)=(\S+)")
+
+state_lock = threading.Lock()
+state = {
+    "enabled": True,
+    "version": VERSION,
+    "mode": "stealth",
+    "knownSafe": "on",
+    "startedAt": time.time(),
+    "blockedTotal": 0,
+    "recentEvents": [],
+    "topOffenders": {},
+    "hostnames": {},
+    "bannedIps": [],
+    "trustedIps": [],
+    "listenPorts": [],
+    "connections": [],
+    "connectionCount": 0,
+    "lastEventAt": 0,
+    "lastEventText": "",
+}
+
+_last_notify = 0.0
+
+
+def read_mode():
+    try:
+        with open(MODE_FILE) as f:
+            m = f.read().strip()
+        return m if m in ("stealth", "reject") else "stealth"
+    except OSError:
+        return "stealth"
+
+
+def read_knownsafe():
+    try:
+        with open(KNOWNSAFE_FILE) as f:
+            k = f.read().strip()
+        return k if k in ("on", "off") else "on"
+    except OSError:
+        return "on"
+
+
+def read_banned_ips():
+    try:
+        with open(BAN_FILE) as f:
+            return [line.strip() for line in f if line.strip()]
+    except OSError:
+        return []
+
+
+def read_trusted_ips():
+    try:
+        with open(TRUST_FILE) as f:
+            return [line.strip() for line in f if line.strip()]
+    except OSError:
+        return []
+
+
+def atomic_write_status():
+    now = time.time()
+    with state_lock:
+        payload = dict(state)
+        payload["recentEvents"] = list(state["recentEvents"])
+        payload["topOffenders"] = dict(state["topOffenders"])
+        payload["hostnames"] = dict(state["hostnames"])
+        payload["bannedIps"] = list(state["bannedIps"])
+        payload["trustedIps"] = list(state["trustedIps"])
+
+    payload["uptimeSec"] = int(now - state["startedAt"])
+    payload["threatLevel"] = threat_level(now)
+    payload["now"] = now
+    # Cheapest-first sort for the "hall of shame" list.
+    payload["topOffenders"] = sorted(
+        ({"ip": ip, "count": c} for ip, c in payload["topOffenders"].items()),
+        key=lambda r: -r["count"],
+    )[:5]
+
+    tmp = STATUS_FILE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f)
+    os.replace(tmp, STATUS_FILE)
+
+
+def threat_level(now):
+    if not state["lastEventAt"]:
+        return 0
+    age = now - state["lastEventAt"]
+    recent = [e for e in state["recentEvents"] if now - e["ts"] < 5]
+    if age < 20 and len(recent) >= 3:
+        return 2
+    if age < 20:
+        return 1
+    return 0
+
+
+def notify(text):
+    global _last_notify
+    now = time.time()
+    if now - _last_notify < NOTIFY_COOLDOWN_SEC:
+        return
+    _last_notify = now
+    try:
+        subprocess.run(
+            ["omarchy-notification-send", "--app-name", "ArchAlarm '99", "-u", "critical", text],
+            check=False,
+            timeout=3,
+        )
+    except Exception:
+        pass
+
+
+def resolve_hostname_async(ip):
+    with state_lock:
+        if ip in state["hostnames"]:
+            return  # already resolved (or already failed) — don't re-lookup
+
+    def worker():
+        host = ""
+        try:
+            socket.setdefaulttimeout(DNS_TIMEOUT_SEC)
+            host = socket.gethostbyaddr(ip)[0]
+        except Exception:
+            host = ""
+        with state_lock:
+            state["hostnames"][ip] = host
+            if len(state["hostnames"]) > MAX_HOSTNAME_CACHE:
+                # Drop an arbitrary old entry rather than grow unbounded
+                # during a long-running sustained scan.
+                state["hostnames"].pop(next(iter(state["hostnames"])), None)
+        if host:
+            atomic_write_status()
+
+    threading.Thread(target=worker, daemon=True).start()
+
+
+def handle_kernel_line(line):
+    if LOG_LINE_RE.search(line) is None:
+        return
+    fields = dict(FIELD_RE.findall(line))
+    src = fields.get("SRC", "?")
+    dport = fields.get("DPT", "?")
+    proto = fields.get("PROTO", "?")
+    now = time.time()
+
+    # Belt-and-suspenders: the nft rule for a banned IP already drops the
+    # packet before the log line that produces this event, so this should
+    # never actually match. Kept as a second guard against any timing edge
+    # case (e.g. a packet in flight during a table reload) so a banned IP
+    # can never resurface a notification or feed entry.
+    with state_lock:
+        already_banned = src in state["bannedIps"]
+    if already_banned:
+        return
+
+    with state_lock:
+        state["blockedTotal"] += 1
+        state["lastEventAt"] = now
+        state["lastEventText"] = f"BLOCKED {src} -> :{dport} ({proto})"
+        state["recentEvents"].insert(0, {
+            "ts": now,
+            "srcIp": src,
+            "dport": dport,
+            "proto": proto,
+        })
+        del state["recentEvents"][MAX_EVENTS:]
+        state["topOffenders"][src] = state["topOffenders"].get(src, 0) + 1
+
+    if src != "?":
+        resolve_hostname_async(src)
+
+    notify(f"Blocked inbound connection from {src} to port {dport}/{proto}")
+    atomic_write_status()
+
+
+MAX_CONNECTIONS_SHOWN = 60
+
+
+def poll_ss():
+    try:
+        out = subprocess.run(
+            ["ss", "-Htuna"], capture_output=True, text=True, timeout=2
+        ).stdout
+    except Exception:
+        return
+    listen_ports = set()
+    connections = []
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        proto = parts[0]
+        sstate = parts[1] if proto in ("tcp", "udp") else proto
+        local = parts[4]
+        peer = parts[5]
+        if sstate in ("LISTEN", "UNCONN") and ":" in local:
+            port = local.rsplit(":", 1)[-1]
+            if port.isdigit():
+                listen_ports.add(int(port))
+        elif sstate == "ESTAB" and ":" in peer:
+            remote_ip, _, remote_port = peer.rpartition(":")
+            connections.append({
+                "proto": proto,
+                "remoteIp": remote_ip.strip("[]"),
+                "remotePort": remote_port,
+            })
+    with state_lock:
+        state["listenPorts"] = sorted(listen_ports)
+        state["connectionCount"] = len(connections)
+        state["connections"] = connections[:MAX_CONNECTIONS_SHOWN]
+
+
+def poll_banlist():
+    fresh_bans = None
+    with state_lock:
+        new_banned = read_banned_ips()
+        newly_added = set(new_banned) - set(state["bannedIps"])
+        state["bannedIps"] = new_banned
+        state["trustedIps"] = read_trusted_ips()
+        if newly_added:
+            # Banning is "gone for good": purge every existing feed entry
+            # and offender tally for that IP, not just future ones.
+            state["recentEvents"] = [
+                e for e in state["recentEvents"] if e["srcIp"] not in newly_added
+            ]
+            for ip in newly_added:
+                state["topOffenders"].pop(ip, None)
+            fresh_bans = True
+    if fresh_bans:
+        atomic_write_status()
+
+
+def poll_mode():
+    with state_lock:
+        state["mode"] = read_mode()
+        state["knownSafe"] = read_knownsafe()
+
+
+def main():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    state["startedAt"] = time.time()
+    state["mode"] = read_mode()
+    state["knownSafe"] = read_knownsafe()
+    poll_ss()
+    poll_banlist()
+    atomic_write_status()
+
+    def on_term(signum, frame):
+        with state_lock:
+            state["enabled"] = False
+        atomic_write_status()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, on_term)
+    signal.signal(signal.SIGINT, on_term)
+
+    proc = subprocess.Popen(
+        ["journalctl", "-k", "-f", "-n", "0", "--no-pager", "-o", "cat"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        bufsize=1,
+    )
+
+    last_ss_poll = 0.0
+    last_ban_poll = 0.0
+    last_periodic_write = 0.0
+    try:
+        while True:
+            timeout = max(0.1, SS_POLL_SEC - (time.time() - last_ss_poll))
+            ready, _, _ = select.select([proc.stdout], [], [], timeout)
+            if ready:
+                line = proc.stdout.readline()
+                if line == "":
+                    break  # journalctl died; let systemd restart us
+                handle_kernel_line(line)
+
+            now = time.time()
+            if now - last_ss_poll >= SS_POLL_SEC:
+                poll_ss()
+                last_ss_poll = now
+            if now - last_ban_poll >= BAN_FILE_POLL_SEC:
+                poll_banlist()
+                poll_mode()
+                last_ban_poll = now
+            # Keep the status file's uptime/threat decay fresh even with no
+            # events, but don't hammer the disk.
+            if now - last_periodic_write >= 2:
+                atomic_write_status()
+                last_periodic_write = now
+    finally:
+        proc.terminate()
+        with state_lock:
+            state["enabled"] = False
+        atomic_write_status()
+
+
+if __name__ == "__main__":
+    main()

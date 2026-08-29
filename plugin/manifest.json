@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "alexander.archalarm",
+  "name": "Firewall",
+  "version": "1.5.1",
+  "author": "alexander",
+  "license": "MIT",
+  "description": "ArchAlarm '99 — a real nftables-backed inbound firewall with a ZoneAlarm/BlackICE-era monitor panel: live blocked-connection feed with reverse-DNS and one-click ban, a stealth/reject response mode, threat meter, and one-click on/off.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Firewall",
+    "description": "Toggle ArchAlarm '99 and watch it work: blocked connections with hostnames, one-click ban, stealth/reject mode, and a threat meter in a retro green-on-black panel.",
+    "category": "Security",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

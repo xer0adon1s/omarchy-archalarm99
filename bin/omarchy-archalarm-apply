@@ -1,0 +1,139 @@
+#!/bin/bash
+# omarchy-archalarm-apply: privileged nft toggle for ArchAlarm '99. Meant to
+# be invoked via `sudo -n omarchy-archalarm-apply <on|off|ban|unban|trust|untrust>`
+# — never call directly as a normal user, it needs root to talk to nft.
+#
+# Safety by design:
+#   - Everything lives in one isolated table, "inet archalarm". This script
+#     only ever creates or deletes that exact table (plus a one-release-old
+#     "inet retrowall" table, cleaned up below for anyone upgrading from the
+#     first version). It never touches ufw, iptables, or any other nft table.
+#   - There is no output/forward chain at all: only inbound traffic is
+#     filtered. Every outbound connection this machine initiates (browsing,
+#     VPN clients, HTB/THM labs, downloads, updates, sync tools) is
+#     completely untouched.
+#   - Established/related traffic, loopback, ICMP ping/discovery, DHCP
+#     replies, and anything from a private LAN range (192.168/16, 10/8,
+#     172.16/12, link-local) are explicitly allowed before the final
+#     drop/reject, so local tools (LocalSend, printers, phone/dev-server
+#     access on wifi) keep working. Only unsolicited *new* connections from
+#     the wider internet get logged and dropped — or, in reject mode,
+#     answered with an explicit refusal instead of silence.
+#   - Whitelisted IPs are accepted before the ban check, so trust always
+#     wins over a stale or contradictory ban.
+#   - Known-safe LAN/protocol noise (optional, on by default): traffic
+#     addressed to a multicast or broadcast destination (mDNS, SSDP, DHCP
+#     discovery) is structurally never a real internet attack — multicast
+#     doesn't cross the public internet into a home NAT — so it's allowed
+#     regardless of source, instead of being logged as an intrusion.
+set -euo pipefail
+
+cleanup_legacy() {
+  # v1.0 used table name "retrowall"; remove it if present so upgrading
+  # never leaves two overlapping archalarms active at once.
+  nft delete table inet retrowall 2>/dev/null || true
+}
+
+seed_set() {
+  local set_name="$1" file="$2"
+  [[ -n "$file" && -f "$file" ]] || return 0
+  while IFS= read -r ip; do
+    [[ -n "$ip" ]] && nft add element inet archalarm "$set_name" "{ $ip }" 2>/dev/null || true
+  done < "$file"
+}
+
+case "${1:-}" in
+  on)
+    mode="${2:-stealth}"
+    banfile="${3:-}"
+    trustfile="${4:-}"
+    knownsafe="${5:-on}"
+    final_action="drop"
+    [[ "$mode" == "reject" ]] && final_action="reject with icmpx type admin-prohibited"
+
+    knownsafe_rules=""
+    if [[ "$knownsafe" == "on" ]]; then
+      knownsafe_rules="
+    ip saddr 0.0.0.0 accept
+    ip daddr 255.255.255.255 accept
+    ip daddr 224.0.0.0/4 accept
+    ip6 daddr ff00::/8 accept"
+    fi
+
+    # Idempotent: drop any previous copy of our table first so re-running
+    # "on" (e.g. a stray double-click, or switching modes) never stacks
+    # duplicate rules.
+    nft delete table inet archalarm 2>/dev/null || true
+    cleanup_legacy
+
+    nft -f - <<EOF
+table inet archalarm {
+  set banned_ips {
+    type ipv4_addr
+  }
+
+  set trusted_ips {
+    type ipv4_addr
+  }
+
+  chain input {
+    type filter hook input priority filter; policy accept;
+
+    ct state established,related accept
+    iif "lo" accept
+
+    ip saddr @trusted_ips accept
+    ip saddr @banned_ips drop
+$knownsafe_rules
+
+    ct state invalid drop
+
+    icmp type echo-request accept
+    icmpv6 type { echo-request, nd-neighbor-solicit, nd-neighbor-advert, nd-router-advert, nd-redirect } accept
+    udp sport 67 udp dport 68 accept
+
+    ip saddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } accept
+    ip6 saddr { fe80::/10, fc00::/7 } accept
+
+    log prefix "ARCHALARM-DROP: " level info
+    counter $final_action
+  }
+}
+EOF
+
+    # Re-seed the persistent lists, one element at a time (a malformed line
+    # here just gets skipped rather than aborting the whole archalarm).
+    seed_set banned_ips "$banfile"
+    seed_set trusted_ips "$trustfile"
+    ;;
+  off)
+    nft delete table inet archalarm 2>/dev/null || true
+    cleanup_legacy
+    ;;
+  ban)
+    ip="${2:-}"
+    [[ -n "$ip" ]] || { echo "usage: omarchy-archalarm-apply ban <ip>" >&2; exit 1; }
+    nft delete element inet archalarm trusted_ips "{ $ip }" 2>/dev/null || true
+    nft add element inet archalarm banned_ips "{ $ip }"
+    ;;
+  unban)
+    ip="${2:-}"
+    [[ -n "$ip" ]] || { echo "usage: omarchy-archalarm-apply unban <ip>" >&2; exit 1; }
+    nft delete element inet archalarm banned_ips "{ $ip }" 2>/dev/null || true
+    ;;
+  trust)
+    ip="${2:-}"
+    [[ -n "$ip" ]] || { echo "usage: omarchy-archalarm-apply trust <ip>" >&2; exit 1; }
+    nft delete element inet archalarm banned_ips "{ $ip }" 2>/dev/null || true
+    nft add element inet archalarm trusted_ips "{ $ip }"
+    ;;
+  untrust)
+    ip="${2:-}"
+    [[ -n "$ip" ]] || { echo "usage: omarchy-archalarm-apply untrust <ip>" >&2; exit 1; }
+    nft delete element inet archalarm trusted_ips "{ $ip }" 2>/dev/null || true
+    ;;
+  *)
+    echo "usage: omarchy-archalarm-apply <on [stealth|reject] [banfile] [trustfile] [knownsafe on|off]|off|ban <ip>|unban <ip>|trust <ip>|untrust <ip>>" >&2
+    exit 1
+    ;;
+esac
