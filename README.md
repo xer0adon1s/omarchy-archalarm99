@@ -174,6 +174,10 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.4** — Verified end-to-end: rolled a live install back to v1.5.3 and
+  used the real in-app updater to bring it forward to this release, to
+  confirm fetch → checkout → reinstall → reload actually works and not
+  just the version-comparison logic in isolation.
 - **1.5.3** — Two real bugs found by actually running the 1.5.2 updater
   end-to-end: `omarchy-archalarm-update` derived its own location from
   `$BASH_SOURCE`, but it's always invoked through the `~/.local/bin`
