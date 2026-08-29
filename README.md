@@ -199,6 +199,8 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.19** — Verification release for 1.5.18: a real click of
+  `[RELOAD SHELL NOW]` that actually brings the bar back on its own.
 - **1.5.18** — Found the actual root cause of the shell restart never
   completing (1.5.16 only papered over one symptom of it): `omarchy
   restart shell`'s own first act is killing its caller — but its caller
