@@ -84,7 +84,8 @@ optionally set up passwordless toggling) and you're armed.
   version number when a newer tagged release is out. Click it to fetch,
   check out the new tag, and re-run the installer, with a retro
   dial-up-style progress screen while it works — no manual `git pull`
-  needed.
+  needed. Restarts the Omarchy shell itself once the install finishes,
+  since that's the only way the panel actually picks up the new version.
 
 ## How it stays safe to run
 
@@ -194,6 +195,16 @@ Applied by `omarchy-archalarm-apply on <stealth|reject> <banfile> <trustfile> <k
 
 ## Version history
 
+- **1.5.8** — Fixed a second real bug uncovered while verifying 1.5.6:
+  the 1.5.6 fix stopped the *disruptive* mid-checkout reloads, but a
+  single symlink retarget still isn't enough for the panel to actually
+  show the new version — Omarchy's plugin loader resolves the symlink
+  chain once at discovery and doesn't re-follow it on a hot-reload or
+  even `rescanPlugins`, so the panel kept silently showing the old
+  version's content until a full shell restart. The panel now triggers
+  `omarchy restart shell` itself, timed to its own animation — once the
+  "UPDATE COMPLETE" state is reached, not a blind sleep in the backend
+  script guessing how long the animation takes.
 - **1.5.7** — Verified the 1.5.6 worktree fix for real: updated a live
   install from v1.5.6 to this release through the actual button/CLI path
   and confirmed the panel reload only happens once, at the very end,

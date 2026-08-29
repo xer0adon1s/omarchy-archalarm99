@@ -14,7 +14,7 @@ Panel {
   moduleName: "alexander.archalarm"
   ipcTarget: "alexander.archalarm"
 
-  readonly property string appVersion: "1.5.7"
+  readonly property string appVersion: "1.5.8"
   property var status: Model.defaultStatus()
   property bool toggling: false
   property bool showPorts: false
@@ -447,8 +447,19 @@ Panel {
     root.updateInstalling = false
     root.updateInstallOk = root._updateProcOk
     root.updateResultShowing = true
-    updateResultDismissTimer.restart()
-    if (root._updateProcOk) root.checkForUpdate()
+    if (root._updateProcOk) {
+      // The install swaps which directory the live symlinks point at —
+      // Panel.qml and Model.js are already the new version's files on
+      // disk, but this *running* component was compiled from the old
+      // ones and keeps executing until the process that loaded it is
+      // gone. Neither the file watcher's hot-reload nor rescanPlugins
+      // re-resolves a retargeted symlink, only a full shell restart
+      // does — so trigger one once the result message has had a moment
+      // on screen, rather than leaving the panel silently stale.
+      shellRestartTimer.restart()
+    } else {
+      updateResultDismissTimer.restart()
+    }
   }
 
   Timer {
@@ -456,6 +467,19 @@ Panel {
     interval: 4000
     repeat: false
     onTriggered: root.updateResultShowing = false
+  }
+
+  Timer {
+    id: shellRestartTimer
+    interval: 1800
+    repeat: false
+    onTriggered: shellRestartProc.running = true
+  }
+
+  Process {
+    id: shellRestartProc
+    running: false
+    command: ["omarchy", "restart", "shell"]
   }
 
   Timer {
@@ -1658,7 +1682,7 @@ Panel {
               wrapMode: Text.WordWrap
               horizontalAlignment: Text.AlignHCenter
               text: root.updateInstallOk
-                ? "> NOW RUNNING v" + root.updateInfo.currentVersion
+                ? "> INSTALLED v" + root.updateInfo.latestVersion + " — reloading shell..."
                 : "> UPDATE FAILED: " + root.updateInstallError
               color: root.updateInstallOk ? root.colCalm : root.colAlert
               font.family: "JetBrainsMono Nerd Font"
